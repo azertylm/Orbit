@@ -1,0 +1,598 @@
+@import "tailwindcss";
+
+:root {
+  --accent: #6d4aff;
+  --accent-glow: rgba(109, 74, 255, 0.42);
+  --accent-soft: rgba(109, 74, 255, 0.18);
+  --accent-2: #7dd3fc;
+  --accent-2-glow: rgba(125, 211, 252, 0.32);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+  --radius-2xl: 28px;
+  --radius-xl: 22px;
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ==========================================================
+   NORME AAA — THÈMES SOMBRES (ONYX & VERRE POLAIRE)
+   Textes principaux : #FFFFFF / #F8FAFC
+   Textes secondaires : #CBD5E1
+   Fonds très sombres : #090A0F / #121521 (opacité >= 0.92)
+   ========================================================== */
+
+[data-theme="onyx"] {
+  --bg-main: #090A0F;
+  --bg-surface: rgba(9, 10, 15, 0.95);
+  --bg-card: rgba(18, 21, 33, 0.93);
+  --bg-card-hover: rgba(24, 28, 44, 0.97);
+  --bg-elevated: rgba(14, 17, 27, 0.95);
+  --bg-input: rgba(9, 10, 15, 0.96);
+  --bg-option: #090A0F;
+  --text-main: #FFFFFF;
+  --text-secondary: #F8FAFC;
+  --text-muted: #CBD5E1;
+  --accent: #6d4aff;
+  --accent-2: #7dd3fc;
+  --success: #6ee7b7;
+  --warning: #fde68a;
+  --danger: #fda4af;
+  --border: rgba(255, 255, 255, 0.16);
+  --border-lum: rgba(255, 255, 255, 0.32);
+  --specular-top: inset 0 1px 0 0 rgba(255, 255, 255, 0.22);
+  --shadow-deep: 0 24px 48px -12px rgba(0, 0, 0, 0.85), 0 4px 16px -2px rgba(0, 0, 0, 0.65);
+  --glass: blur(28px) saturate(190%);
+  --glass-heavy: blur(40px) saturate(210%);
+
+  /* AAA Badges (Sombre) */
+  --badge-cyan-bg: rgba(8, 28, 48, 0.95);
+  --badge-cyan-text: #E0F2FE;
+  --badge-cyan-border: rgba(125, 211, 252, 0.55);
+
+  --badge-emerald-bg: rgba(6, 36, 26, 0.95);
+  --badge-emerald-text: #D1FAE5;
+  --badge-emerald-border: rgba(110, 231, 183, 0.55);
+
+  --badge-amber-bg: rgba(45, 26, 6, 0.95);
+  --badge-amber-text: #FEF3C7;
+  --badge-amber-border: rgba(252, 211, 77, 0.55);
+
+  --badge-purple-bg: rgba(32, 18, 60, 0.95);
+  --badge-purple-text: #F3E8FF;
+  --badge-purple-border: rgba(196, 181, 253, 0.55);
+}
+
+[data-theme="polar"] {
+  --bg-main: #090A0F;
+  --bg-surface: rgba(9, 12, 22, 0.95);
+  --bg-card: rgba(18, 21, 33, 0.93);
+  --bg-card-hover: rgba(24, 30, 48, 0.97);
+  --bg-elevated: rgba(13, 18, 30, 0.95);
+  --bg-input: rgba(9, 10, 15, 0.96);
+  --bg-option: #090A0F;
+  --text-main: #FFFFFF;
+  --text-secondary: #F8FAFC;
+  --text-muted: #CBD5E1;
+  --accent: #6d4aff;
+  --accent-2: #bae6fd;
+  --success: #6ee7b7;
+  --warning: #fde68a;
+  --danger: #fda4af;
+  --border: rgba(186, 230, 253, 0.22);
+  --border-lum: rgba(186, 230, 253, 0.45);
+  --specular-top: inset 0 1px 0 0 rgba(224, 242, 254, 0.25);
+  --shadow-deep: 0 24px 52px -12px rgba(2, 6, 23, 0.9), 0 0 28px -8px rgba(56, 189, 248, 0.18);
+  --glass: blur(30px) saturate(200%);
+  --glass-heavy: blur(44px) saturate(220%);
+
+  /* AAA Badges (Polaire Sombre) */
+  --badge-cyan-bg: rgba(8, 28, 48, 0.95);
+  --badge-cyan-text: #E0F2FE;
+  --badge-cyan-border: rgba(125, 211, 252, 0.55);
+
+  --badge-emerald-bg: rgba(6, 36, 26, 0.95);
+  --badge-emerald-text: #D1FAE5;
+  --badge-emerald-border: rgba(110, 231, 183, 0.55);
+
+  --badge-amber-bg: rgba(45, 26, 6, 0.95);
+  --badge-amber-text: #FEF3C7;
+  --badge-amber-border: rgba(252, 211, 77, 0.55);
+
+  --badge-purple-bg: rgba(32, 18, 60, 0.95);
+  --badge-purple-text: #F3E8FF;
+  --badge-purple-border: rgba(196, 181, 253, 0.55);
+}
+
+/* ==========================================================
+   NORME AAA — THÈME CLAIR (ALABASTER)
+   Textes principaux : #0F172A sur fond blanc pur #FFFFFF
+   Textes secondaires : #1E293B / #334155
+   Badges : fond pastel très doux + texte foncé ultra-lisible
+   ========================================================== */
+
+[data-theme="alabaster"] {
+  --bg-main: #FFFFFF;
+  --bg-surface: rgba(255, 255, 255, 0.98);
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F8FAFC;
+  --bg-elevated: #F8FAFC;
+  --bg-input: #FFFFFF;
+  --bg-option: #FFFFFF;
+  --text-main: #0F172A;
+  --text-secondary: #0F172A;
+  --text-muted: #334155;
+  --accent: #4338CA;
+  --accent-glow: rgba(67, 56, 202, 0.22);
+  --accent-soft: rgba(67, 56, 202, 0.1);
+  --accent-2: #0C4A6E;
+  --success: #065F46;
+  --warning: #92400E;
+  --danger: #9F1239;
+  --border: rgba(15, 23, 42, 0.16);
+  --border-lum: rgba(15, 23, 42, 0.32);
+  --specular-top: inset 0 1px 0 0 rgba(255, 255, 255, 1);
+  --shadow-deep: 0 16px 36px -12px rgba(15, 23, 42, 0.1), 0 2px 8px -2px rgba(15, 23, 42, 0.06);
+  --glass: blur(24px) saturate(180%);
+  --glass-heavy: blur(36px) saturate(200%);
+
+  /* AAA Badges (Pastel très doux + texte foncé ultra-lisible) */
+  --badge-cyan-bg: #E0F2FE;
+  --badge-cyan-text: #0C4A6E;
+  --badge-cyan-border: #7DD3FC;
+
+  --badge-emerald-bg: #D1FAE5;
+  --badge-emerald-text: #064E3B;
+  --badge-emerald-border: #6EE7B7;
+
+  --badge-amber-bg: #FEF3C7;
+  --badge-amber-text: #78350F;
+  --badge-amber-border: #FCD34D;
+
+  --badge-purple-bg: #EDE9FE;
+  --badge-purple-text: #4C1D95;
+  --badge-purple-border: #C4B5FD;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  letter-spacing: -0.011em;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+[data-theme="onyx"] body,
+[data-theme="polar"] body {
+  background-image:
+    radial-gradient(circle at 14% 6%, rgba(109, 74, 255, 0.16), transparent 36%),
+    radial-gradient(circle at 86% 88%, rgba(56, 189, 248, 0.08), transparent 40%);
+  background-attachment: fixed;
+}
+
+[data-theme="alabaster"] body {
+  background-color: #FFFFFF;
+  background-image: none;
+  color: #0F172A;
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: "Outfit", sans-serif;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.font-mono-num {
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ==========================================================
+   FORM CONTROLS, SELECTS, OPTIONS & INPUTS (AAA CONTRAST)
+   ========================================================== */
+
+select,
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="url"],
+input[type="search"],
+textarea {
+  background-color: var(--bg-input);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+}
+
+select option {
+  background-color: var(--bg-option) !important;
+  color: var(--text-main) !important;
+  font-weight: 600;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================
+   PROTECTION STRICTE DES TEXTES SUR VIDÉOS & MINIATURES (AAA)
+   Dégradé sombre : linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.4), transparent)
+   Text-shadow : 0 2px 6px rgba(0,0,0,0.9)
+   ========================================================== */
+
+.orbit-video-scrim {
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.92) 0%,
+    rgba(0, 0, 0, 0.4) 55%,
+    transparent 100%
+  ) !important;
+}
+
+.orbit-video-text-shadow,
+.orbit-video-overlay-zone,
+.orbit-video-overlay-zone span,
+.orbit-video-overlay-zone h2,
+.orbit-video-overlay-zone h3,
+.orbit-video-overlay-zone p {
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9) !important;
+}
+
+/* ==========================================================
+   BADGES & PILLS AAA ADAPTATIFS (SOMBRE & CLAIR PASTEL)
+   ========================================================== */
+
+.badge-aaa-cyan {
+  background-color: var(--badge-cyan-bg) !important;
+  color: var(--badge-cyan-text) !important;
+  border: 1px solid var(--badge-cyan-border) !important;
+}
+
+.badge-aaa-emerald {
+  background-color: var(--badge-emerald-bg) !important;
+  color: var(--badge-emerald-text) !important;
+  border: 1px solid var(--badge-emerald-border) !important;
+}
+
+.badge-aaa-amber {
+  background-color: var(--badge-amber-bg) !important;
+  color: var(--badge-amber-text) !important;
+  border: 1px solid var(--badge-amber-border) !important;
+}
+
+.badge-aaa-purple {
+  background-color: var(--badge-purple-bg) !important;
+  color: var(--badge-purple-text) !important;
+  border: 1px solid var(--badge-purple-border) !important;
+}
+
+/* ==========================================================
+   CORRECTIFS AUTOMATIQUES THÈME CLAIR (ALABASTER) POUR GARANTIR
+   ZÉRO TEXTE CLAIR SUR FOND CLAIR HORS LECTEUR VIDÉO
+   ========================================================== */
+
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) {
+  background-color: #FFFFFF;
+  color: #0F172A;
+  border-color: rgba(15, 23, 42, 0.15);
+}
+
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-cyan-300,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-cyan-400,
+[data-theme="alabaster"] header .text-cyan-300,
+[data-theme="alabaster"] header .text-cyan-400,
+[data-theme="alabaster"] aside .text-cyan-300,
+[data-theme="alabaster"] aside .text-cyan-400 {
+  color: #0C4A6E !important;
+}
+
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-amber-300,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-amber-400,
+[data-theme="alabaster"] header .text-amber-300,
+[data-theme="alabaster"] header .text-amber-400,
+[data-theme="alabaster"] aside .text-amber-300,
+[data-theme="alabaster"] aside .text-amber-400 {
+  color: #78350F !important;
+}
+
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-emerald-300,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-emerald-400,
+[data-theme="alabaster"] header .text-emerald-300,
+[data-theme="alabaster"] header .text-emerald-400,
+[data-theme="alabaster"] aside .text-emerald-300,
+[data-theme="alabaster"] aside .text-emerald-400 {
+  color: #064E3B !important;
+}
+
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-purple-300,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-purple-400,
+[data-theme="alabaster"] aside .text-purple-400 {
+  color: #4C1D95 !important;
+}
+
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-rose-400 {
+  color: #9F1239 !important;
+}
+
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .bg-black\/25,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .bg-black\/30,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .bg-black\/40,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .bg-white\/5 {
+  background-color: #F8FAFC !important;
+  color: #0F172A !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
+}
+
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-white\/90,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-white\/85,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-white\/80,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-white\/75,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-white\/70,
+[data-theme="alabaster"] .glass-panel:not(.orbit-dark-forced) .text-white\/60 {
+  color: #1E293B !important;
+}
+
+/* ==========================================================
+   HAUTE COUTURE GLASSMORPHISM SURFACES (AAA)
+   ========================================================== */
+
+.glass-panel {
+  background: var(--bg-card);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
+  border: 1px solid var(--border);
+  box-shadow: var(--specular-top), var(--shadow-deep);
+  transition: transform 0.2s var(--ease-out-expo), border-color 0.2s var(--ease-out-expo), background-color 0.2s var(--ease-out-expo), box-shadow 0.2s var(--ease-out-expo);
+}
+
+.glass-panel-interactive:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-lum);
+  transform: translateY(-2px);
+}
+
+.glass-pill-bar {
+  background: rgba(9, 10, 15, 0.92);
+  backdrop-filter: var(--glass-heavy);
+  -webkit-backdrop-filter: var(--glass-heavy);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.25), 0 16px 36px -8px rgba(0, 0, 0, 0.85);
+  color: #FFFFFF;
+}
+
+.glass-action-btn {
+  background: rgba(9, 10, 15, 0.92);
+  backdrop-filter: blur(24px) saturate(190%);
+  -webkit-backdrop-filter: blur(24px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.28), 0 10px 25px -5px rgba(0, 0, 0, 0.75);
+  color: #FFFFFF;
+  transition: transform 0.18s var(--ease-spring), border-color 0.18s var(--ease-out-expo), background-color 0.18s var(--ease-out-expo), box-shadow 0.18s var(--ease-out-expo);
+}
+
+.glass-action-btn:hover {
+  background: rgba(18, 21, 33, 0.96);
+  border-color: rgba(255, 255, 255, 0.45);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.35), 0 14px 30px -4px rgba(0, 0, 0, 0.85), 0 0 18px var(--accent-glow);
+}
+
+.glass-action-btn:active {
+  transform: scale(0.94);
+}
+
+.btn-couture {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.18s var(--ease-spring), box-shadow 0.18s var(--ease-out-expo), opacity 0.18s var(--ease-out-expo);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.32), 0 8px 24px -4px var(--accent-glow);
+}
+
+.btn-couture:hover {
+  transform: translateY(-1.5px) scale(1.015);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.45), 0 12px 28px -2px var(--accent-glow);
+}
+
+.btn-couture:active {
+  transform: scale(0.97);
+}
+
+/* ==========================================================
+   CUSTOM MICRO-ANIMATED VOTE & CALIBRATION SLIDERS
+   ========================================================== */
+
+input[type="range"].orbit-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(148, 163, 184, 0.35);
+  height: 6px;
+  border-radius: 999px;
+  outline: none;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+  transition: background 0.2s var(--ease-out-expo), height 0.2s var(--ease-out-expo);
+}
+
+input[type="range"].orbit-slider:hover {
+  background: rgba(148, 163, 184, 0.52);
+}
+
+input[type="range"].orbit-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: 2px solid var(--accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 14px var(--accent-glow);
+  cursor: pointer;
+  transition: transform 0.18s var(--ease-spring), box-shadow 0.18s var(--ease-out-expo), border-color 0.18s var(--ease-out-expo);
+}
+
+input[type="range"].orbit-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.22);
+  border-color: var(--accent-2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75), 0 0 20px var(--accent-glow);
+}
+
+input[type="range"].orbit-slider::-webkit-slider-thumb:active {
+  transform: scale(1.32);
+  background: var(--accent);
+  border-color: #ffffff;
+}
+
+input[type="range"].orbit-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: 2px solid var(--accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 14px var(--accent-glow);
+  cursor: pointer;
+  transition: transform 0.18s var(--ease-spring), box-shadow 0.18s var(--ease-out-expo);
+}
+
+/* ==========================================================
+   FONCTIONNALITÉ 18 : ANIMATION DE PARTICULES EN CSS
+   (RÉACTIONS ÉPHÉMÈRES FLOTTANTES SUR LE BORD DROIT DE LA VIDÉO)
+   ========================================================== */
+
+@keyframes orbitFloatReactionUp {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.45) rotate(-8deg);
+  }
+  15% {
+    opacity: 1;
+    transform: translate3d(var(--sway-start, -10px), -18px, 0) scale(1.18) rotate(6deg);
+  }
+  55% {
+    opacity: 0.95;
+    transform: translate3d(var(--sway-mid, 12px), -110px, 0) scale(1.05) rotate(-6deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--sway-end, -14px), -230px, 0) scale(0.75) rotate(10deg);
+  }
+}
+
+.orbit-floating-particle {
+  position: absolute;
+  bottom: 18px;
+  right: 14px;
+  pointer-events: none;
+  z-index: 40;
+  will-change: transform, opacity;
+  animation: orbitFloatReactionUp var(--duration, 1.55s) cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.85));
+}
+
+/* Hide scrollbars in vertical immersion feed while keeping smooth scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ==========================================================
+   ORBIT V2.0 — MODE IMMERSIF VIDÉO PLEIN ÉCRAN (MOBILE & DESKTOP)
+   100dvh dynamique (Android/iOS), transparence 50% sur éléments
+   secondaires, cibles tactiles >= 44x44px avec icônes compactes.
+   ========================================================== */
+
+:root {
+  --app-dvh: 100dvh;
+}
+
+@supports not (height: 100dvh) {
+  :root {
+    --app-dvh: 100vh;
+  }
+}
+
+.orbit-immersive-viewport {
+  height: var(--app-dvh, 100dvh);
+  min-height: -webkit-fill-available;
+  width: 100%;
+  overscroll-behavior-y: contain;
+}
+
+/* Élément secondaire discret : opacité ~50% au repos, 100% à l'interaction */
+.orbit-discreet-ui {
+  opacity: 0.52;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.18s ease;
+}
+
+.orbit-discreet-ui:hover,
+.orbit-discreet-ui:focus-visible,
+.orbit-discreet-ui:active,
+.orbit-discreet-ui-active {
+  opacity: 1 !important;
+}
+
+/* Bouton compact visuel (32px) avec zone tactile ergonomique 44x44px */
+.orbit-compact-hit {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.orbit-compact-pill {
+  background: rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* Recadrage intelligent plein écran en portrait pour vidéo 16:9 */
+@media (max-aspect-ratio: 10/13) {
+  .orbit-video-smart-crop-16-9 {
+    position: absolute !important;
+    top: 50% !important;
+    left: 50% !important;
+    height: 100% !important;
+    width: 177.78vh !important;
+    width: calc(var(--app-dvh, 100dvh) * 1.7778) !important;
+    min-width: 100% !important;
+    max-width: none !important;
+    transform: translate(-50%, -50%) !important;
+  }
+}
+

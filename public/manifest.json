@@ -1,0 +1,35 @@
+{
+  "id": "/",
+  "name": "ORBIT — Réseau Social Vidéo",
+  "short_name": "ORBIT",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07080d",
+  "theme_color": "#7c5cff",
+  "orientation": "any",
+  "description": "L'univers social de vos vidéos : 15 piliers, 105 sous-domaines et zéros hébergement.",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

@@ -1,0 +1,1893 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="onyx">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ORBIT v2.0 — Réseau Social & Panthéon Vidéo Universel</title>
+  <style>
+    :root {
+      --accent: #7c5cff;
+      --accent-glow: rgba(124, 92, 255, 0.38);
+      --accent-2: #00e5ff;
+      --success: #00e676;
+      --warning: #ffab00;
+      --danger: #ff3d71;
+      --radius-xl: 24px;
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+      --transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    [data-theme="onyx"] {
+      --bg-main: #07080d;
+      --bg-surface: rgba(16, 18, 27, 0.85);
+      --bg-card: rgba(24, 27, 40, 0.72);
+      --bg-card-hover: rgba(34, 38, 56, 0.9);
+      --bg-input: rgba(0, 0, 0, 0.35);
+      --text-main: #f4f6fb;
+      --text-muted: #8c93a8;
+      --border: rgba(255, 255, 255, 0.08);
+      --glass: blur(20px);
+    }
+
+    [data-theme="alabaster"] {
+      --bg-main: #f4f3ef;
+      --bg-surface: rgba(255, 255, 255, 0.9);
+      --bg-card: #ffffff;
+      --bg-card-hover: #f9f9fb;
+      --bg-input: rgba(0, 0, 0, 0.04);
+      --text-main: #121318;
+      --text-muted: #62667a;
+      --border: rgba(0, 0, 0, 0.09);
+      --glass: blur(14px);
+    }
+
+    [data-theme="polar"] {
+      --bg-main: #06101e;
+      --bg-surface: rgba(16, 33, 58, 0.78);
+      --bg-card: rgba(28, 52, 88, 0.45);
+      --bg-card-hover: rgba(38, 68, 112, 0.65);
+      --bg-input: rgba(0, 0, 0, 0.28);
+      --text-main: #ffffff;
+      --text-muted: #9bb3cc;
+      --border: rgba(0, 229, 255, 0.16);
+      --glass: blur(22px);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 12% 8%, var(--accent-glow), transparent 32%),
+        radial-gradient(circle at 88% 85%, rgba(0, 229, 255, 0.1), transparent 38%);
+      background-attachment: fixed;
+    }
+
+    /* STRUCTURE PRINCIPALE */
+    .app-shell {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 100vh;
+      max-width: 1520px;
+      margin: 0 auto;
+    }
+
+    /* SIDEBAR NAVIGATION */
+    .sidebar {
+      background: var(--bg-surface);
+      backdrop-filter: var(--glass);
+      -webkit-backdrop-filter: var(--glass);
+      border-right: 1px solid var(--border);
+      padding: 22px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      z-index: 200;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 10px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .orbit-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      color: #fff;
+      font-size: 18px;
+      box-shadow: 0 0 22px var(--accent-glow);
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .orbit-icon::after {
+      content: '';
+      position: absolute;
+      width: 50px;
+      height: 18px;
+      border: 2px solid var(--accent-2);
+      border-radius: 50%;
+      transform: rotate(-24deg);
+    }
+
+    .brand-name {
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: 2.5px;
+      background: linear-gradient(90deg, var(--text-main), var(--accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .nav-menu {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 20px;
+      flex: 1;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 15px;
+      border-radius: var(--radius-md);
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: var(--transition);
+      text-align: left;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-card);
+      color: var(--text-main);
+    }
+
+    .nav-item.active {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 8px 22px var(--accent-glow);
+    }
+
+    .nav-badge {
+      margin-left: auto;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    /* MAIN VIEWPORT */
+    .viewport {
+      padding: 22px 30px 110px;
+      max-width: 1160px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* TOPBAR */
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .search-global {
+      position: relative;
+      flex: 1;
+      min-width: 240px;
+      max-width: 420px;
+    }
+
+    .search-global input {
+      width: 100%;
+      padding: 11px 16px 11px 38px;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-main);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .search-global::before {
+      content: '🔍';
+      position: absolute;
+      left: 13px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 13px;
+      opacity: 0.7;
+    }
+
+    .top-btn-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 10px 15px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-main);
+      font-weight: 700;
+      font-size: 12.5px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      transition: var(--transition);
+    }
+
+    .btn:hover {
+      background: var(--bg-card-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-accent {
+      background: linear-gradient(135deg, var(--accent), #5e35ff);
+      color: #fff;
+      border: none;
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+
+    .btn-whatsapp {
+      background: linear-gradient(135deg, #00c853, #009624);
+      color: #fff;
+      border: none;
+    }
+
+    /* PAGES */
+    .page-section {
+      display: none;
+      animation: pageSlide 0.28s ease;
+    }
+
+    .page-section.active {
+      display: block;
+    }
+
+    @keyframes pageSlide {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .section-head {
+      margin-bottom: 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .section-title {
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+    }
+
+    .section-desc {
+      color: var(--text-muted);
+      font-size: 13.5px;
+      margin-top: 4px;
+    }
+
+    /* GLASS PANELS */
+    .panel {
+      background: var(--bg-card);
+      backdrop-filter: var(--glass);
+      -webkit-backdrop-filter: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      margin-bottom: 20px;
+    }
+
+    /* COMPOSER INTELLIGENT */
+    .composer-box {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .composer-row {
+      display: grid;
+      grid-template-columns: 1fr 200px 200px;
+      gap: 10px;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      padding: 11px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      color: var(--text-main);
+      font-size: 13.5px;
+      outline: none;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .ai-detect-banner {
+      font-size: 12px;
+      color: var(--accent-2);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: rgba(0, 229, 255, 0.08);
+      border: 1px solid rgba(0, 229, 255, 0.2);
+    }
+
+    /* CHIPS & FILTRES */
+    .chips-scroll {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 10px;
+      margin-bottom: 16px;
+      scrollbar-width: thin;
+    }
+
+    .chip {
+      padding: 7px 14px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      white-space: nowrap;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .chip:hover, .chip.active {
+      background: var(--text-main);
+      color: var(--bg-main);
+      border-color: transparent;
+    }
+
+    /* VIDEO GRID & CARDS */
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 20px;
+    }
+
+    .vcard {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: var(--transition);
+    }
+
+    .vcard:hover {
+      transform: translateY(-4px);
+      border-color: var(--accent);
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+    }
+
+    .vcard-header {
+      padding: 12px 15px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .author-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 12px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .plat-pill {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 99px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .plat-youtube { background: rgba(255, 0, 0, 0.18); color: #ff5252; }
+    .plat-tiktok { background: rgba(0, 242, 254, 0.18); color: #00f2fe; }
+    .plat-instagram { background: rgba(225, 48, 108, 0.18); color: #ff6b9d; }
+    .plat-twitch { background: rgba(145, 70, 255, 0.18); color: #b685ff; }
+
+    .vcard-media {
+      position: relative;
+      width: 100%;
+      background: #000;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .vcard-media.ratio-16-9 { aspect-ratio: 16 / 9; }
+    .vcard-media.ratio-9-16 { aspect-ratio: 9 / 12; max-height: 350px; }
+
+    .vcard-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.88;
+      transition: transform 0.35s ease;
+    }
+
+    .vcard:hover .vcard-media img {
+      transform: scale(1.04);
+    }
+
+    .media-overlay {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.65) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .play-trigger {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: rgba(124, 92, 255, 0.92);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 19px;
+      box-shadow: 0 0 24px var(--accent-glow);
+      transition: var(--transition);
+    }
+
+    .vcard-media:hover .play-trigger {
+      transform: scale(1.12);
+    }
+
+    .badge-domain {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(7, 8, 13, 0.86);
+      backdrop-filter: blur(8px);
+      color: #fff;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid rgba(255,255,255,0.14);
+    }
+
+    .badge-score {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(10, 12, 20, 0.92);
+      color: #ffd700;
+      padding: 5px 10px;
+      border-radius: 10px;
+      font-weight: 900;
+      font-size: 13px;
+      border: 1px solid rgba(255, 215, 0, 0.4);
+    }
+
+    .vcard-body {
+      padding: 14px 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .vcard-title {
+      font-size: 15px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .vcard-note-text {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      font-style: italic;
+      background: rgba(255,255,255,0.03);
+      padding: 8px 10px;
+      border-radius: 8px;
+      border-left: 3px solid var(--accent);
+    }
+
+    .vcard-footer {
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .vote-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .slider {
+      accent-color: var(--accent);
+      cursor: pointer;
+      height: 5px;
+      flex: 1;
+    }
+
+    .card-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .action-link {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .action-link:hover {
+      color: var(--accent-2);
+    }
+
+    /* COMMENTS DRAWER IN CARD */
+    .comments-box {
+      display: none;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--border);
+      font-size: 12px;
+    }
+
+    .comments-box.open {
+      display: block;
+    }
+
+    /* GRILLE DES 15 PILIERS (PAGE 3) */
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .pillar-card {
+      padding: 12px;
+      border-radius: var(--radius-md);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12.5px;
+      font-weight: 800;
+    }
+
+    .pillar-card:hover, .pillar-card.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 6px 18px var(--accent-glow);
+    }
+
+    /* ADN CULTUREL (PAGE 2) */
+    .dna-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 12px;
+    }
+
+    .dna-card {
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .dna-card.is-secret {
+      opacity: 0.5;
+      border-style: dashed;
+    }
+
+    .bar-bg {
+      height: 7px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      border-radius: 99px;
+    }
+
+    /* MINI LECTEUR PERSISTANT PICTURE-IN-PICTURE (PiP) */
+    .pip-dock {
+      position: fixed;
+      bottom: 22px;
+      right: 22px;
+      width: 340px;
+      background: var(--bg-surface);
+      backdrop-filter: var(--glass);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 18px 45px rgba(0,0,0,0.65);
+      z-index: 950;
+      overflow: hidden;
+      display: none;
+      animation: pageSlide 0.25s ease;
+    }
+
+    .pip-dock.active {
+      display: block;
+    }
+
+    .pip-header {
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 800;
+      background: rgba(0,0,0,0.4);
+    }
+
+    .pip-screen {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+    }
+
+    /* MODALES */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.78);
+      backdrop-filter: blur(10px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1100;
+      padding: 16px;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+    }
+
+    .modal-window {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      max-width: 620px;
+      width: 100%;
+      padding: 24px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    /* RESPONSIVE MOBILE */
+    @media (max-width: 900px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed;
+        bottom: 0;
+        top: auto;
+        left: 0;
+        right: 0;
+        height: 68px;
+        flex-direction: row;
+        padding: 6px 8px;
+        border-right: none;
+        border-top: 1px solid var(--border);
+      }
+      .brand-box, .sidebar-foot { display: none; }
+      .nav-menu {
+        flex-direction: row;
+        margin-top: 0;
+        width: 100%;
+        justify-content: space-around;
+      }
+      .nav-item {
+        flex-direction: column;
+        gap: 3px;
+        padding: 7px 6px;
+        font-size: 11px;
+        flex: 1;
+        justify-content: center;
+        text-align: center;
+      }
+      .nav-badge { display: none; }
+      .viewport { padding: 14px 12px 92px; }
+      .composer-row { grid-template-columns: 1fr; }
+      .pip-dock { bottom: 76px; right: 10px; width: 280px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell">
+  <!-- NAVIGATION : LES 4 PAGES FONDAMENTALES -->
+  <aside class="sidebar">
+    <div>
+      <div class="brand-box">
+        <div class="orbit-icon">O</div>
+        <div>
+          <div class="brand-name">ORBIT</div>
+          <div style="font-size:10px; color:var(--text-muted); letter-spacing:1px;">UNIVERS SOCIAL VIDÉO</div>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" onclick="goPage('p1', this)">
+          <span>⚡</span><span>Le Flux</span><span class="nav-badge">P.1</span>
+        </button>
+        <button class="nav-item" onclick="goPage('p2', this)">
+          <span>👤</span><span>Ma Page</span><span class="nav-badge">P.2</span>
+        </button>
+        <button class="nav-item" onclick="goPage('p3', this)">
+          <span>🏆</span><span>Le Panthéon</span><span class="nav-badge">P.3</span>
+        </button>
+        <button class="nav-item" onclick="goPage('p4', this)">
+          <span>🧭</span><span>Le Radar</span><span class="nav-badge">P.4</span>
+        </button>
+      </nav>
+    </div>
+
+    <div class="sidebar-foot" style="padding:10px; font-size:11.5px; color:var(--text-muted); border-top:1px solid var(--border);">
+      <div style="font-weight:700; color:var(--text-main); margin-bottom:4px;">État du Moteur Local</div>
+      <div>● 15 Piliers / 105 Sous-domaines</div>
+      <div>● Sauvegarde Auto Active</div>
+      <button class="btn" style="width:100%; margin-top:10px; justify-content:center; font-size:11px;" onclick="exportOrbitData()">
+        💾 Exporter Base JSON
+      </button>
+    </div>
+  </aside>
+
+  <!-- CONTENU PRINCIPAL -->
+  <main class="viewport">
+    <!-- BARRE SUPÉRIEURE -->
+    <header class="topbar">
+      <div class="search-global">
+        <input type="text" id="global-search" placeholder="Rechercher une vidéo, un domaine, un ami, un mot-clé..." oninput="handleGlobalSearch(this.value)">
+      </div>
+      <div class="top-btn-group">
+        <button class="btn btn-accent" onclick="openModal('modal-sync')">
+          🔗 Connecteurs Réseaux (<span id="sync-counter">4</span>/6)
+        </button>
+        <button class="btn btn-whatsapp" onclick="openModal('modal-capsule')">
+          🎁 Capsule Ami (WhatsApp)
+        </button>
+        <button class="btn" onclick="openModal('modal-design')">
+          🎨 Studio Design
+        </button>
+      </div>
+    </header>
+
+    <!-- ==========================================================
+         PAGE 1 : LE FLUX (ABONNEMENTS, AMIS & PARTAGE MULTI-RÉSEAUX)
+         ========================================================== -->
+    <section id="p1" class="page-section active">
+      <div class="section-head">
+        <div>
+          <h1 class="section-title">⚡ Le Flux de vos Abonnements</h1>
+          <p class="section-desc">Partagez et notez le meilleur de YouTube, TikTok, Instagram et Twitch sans aucun hébergement lourd.</p>
+        </div>
+      </div>
+
+      <!-- Publieur avec Auto-Classification Intelligente -->
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+          <span style="font-weight:800; font-size:14px;">✨ Partager une pépite sur mon mur & dans le Panthéon</span>
+          <span id="ai-classifier-status" class="ai-detect-banner">🤖 Auto-Classification IA prête : collez un lien ou tapez un titre</span>
+        </div>
+
+        <div class="composer-box">
+          <div class="composer-row">
+            <input type="text" id="inp-url" placeholder="Lien YouTube, Shorts, TikTok, Instagram Reel, Twitch..." oninput="autoClassifyInput()">
+            <select id="inp-domain" onchange="populateComposerSubdomains()"></select>
+            <select id="inp-subdomain"></select>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr auto; gap:10px;">
+            <input type="text" id="inp-title" placeholder="Titre de la vidéo (auto ou personnalisé)" oninput="autoClassifyInput()">
+            <input type="text" id="inp-comment" placeholder="Votre avis pour vos abonnés (façon Facebook)...">
+            <button class="btn btn-accent" onclick="submitNewVideo()">Publier</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtres du Flux -->
+      <div class="chips-scroll">
+        <button class="chip active" onclick="setFeedFilter('all', this)">🌍 Tout mon Flux</button>
+        <button class="chip" onclick="setFeedFilter('friends', this)">👥 Amis (WhatsApp / Répertoire)</button>
+        <button class="chip" onclick="setFeedFilter('youtube', this)">▶️ YouTube</button>
+        <button class="chip" onclick="setFeedFilter('vertical', this)">📱 Formats Verticaux (TikTok / Reels / Shorts)</button>
+        <button class="chip" onclick="setFeedFilter('top95', this)">💎 Notes > 9.5/10</button>
+      </div>
+
+      <div id="feed-grid" class="video-grid"></div>
+    </section>
+
+    <!-- ==========================================================
+         PAGE 2 : MA PAGE (MUR PERSONNEL, ADN CULTUREL & JARDIN SECRET)
+         ========================================================== -->
+    <section id="p2" class="page-section">
+      <div class="panel" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:18px;">
+        <div style="display:flex; align-items:center; gap:16px;">
+          <div class="avatar" style="width:74px; height:74px; font-size:26px;" id="prof-avatar">VR</div>
+          <div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <h2 style="font-size:22px; font-weight:900;" id="prof-name">Mon Profil Orbit</h2>
+              <button class="btn" style="padding:4px 10px; font-size:11px;" onclick="editProfilePrompt()">✏️ Modifier</button>
+            </div>
+            <p style="color:var(--text-muted); font-size:13px; margin-top:4px;" id="prof-bio">
+              Explorateur visuel, tech & son • Curateur sur 15 domaines
+            </p>
+            <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;" id="prof-badges"></div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-whatsapp" onclick="openModal('modal-capsule')">📲 Partager ma Page à un ami</button>
+        </div>
+      </div>
+
+      <!-- ADN Culturel & Mode Fantôme -->
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+          <div>
+            <h3 style="font-size:16px; font-weight:900;">🧬 Mon Empreinte Culturelle (15 Domaines)</h3>
+            <p style="font-size:12px; color:var(--text-muted);">
+              Calculée selon vos imports consentis et vos notes. Cliquez sur <strong>👁️ Public / 🔒 Secret</strong> pour masquer un domaine aux visiteurs tout en le gardant actif sur votre Page 4.
+            </p>
+          </div>
+        </div>
+        <div id="dna-grid" class="dna-grid"></div>
+      </div>
+
+      <!-- Onglets du Profil : Mur des publications vs Playlists automatiques -->
+      <div class="chips-scroll">
+        <button class="chip active" onclick="switchProfileTab('wall', this)">📌 Mon Mur de Publications</button>
+        <button class="chip" onclick="switchProfileTab('favs', this)">⭐ Mes Coups de Cœur (Notés ≥ 9.5)</button>
+        <button class="chip" onclick="switchProfileTab('secret', this)">🔒 Mon Jardin Secret (Catégories masquées)</button>
+      </div>
+
+      <div id="profile-grid" class="video-grid"></div>
+    </section>
+
+    <!-- ==========================================================
+         PAGE 3 : LE PANTHÉON (15 PILIERS, 105 SOUS-DOMAINES & GRAVITÉ)
+         ========================================================== -->
+    <section id="p3" class="page-section">
+      <div class="section-head">
+        <div>
+          <h1 class="section-title">🏆 Le Panthéon des 15 Domaines</h1>
+          <p class="section-desc">Égalité stricte : 1 membre = 1 vote. Le moteur de gravité temporelle renouvelle le premier plan chaque jour.</p>
+        </div>
+      </div>
+
+      <!-- Sélecteur de Gravité Temporelle -->
+      <div style="display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap;">
+        <button class="btn btn-accent" onclick="setPantheonMode('gravity', this)">🔥 En ce moment (Gravité 24h)</button>
+        <button class="btn" onclick="setPantheonMode('emerging', this)">🚀 Émergentes (-12h)</button>
+        <button class="btn" onclick="setPantheonMode('month', this)">📅 Top du Mois</button>
+        <button class="btn" onclick="setPantheonMode('alltime', this)">🏛️ Légendes Intemporelles</button>
+      </div>
+
+      <!-- Grille des 15 Piliers -->
+      <div id="pillars-grid" class="pillars-grid"></div>
+
+      <!-- Barre des 7 Sous-domaines du Pilier actif -->
+      <div id="subpillars-bar" class="chips-scroll"></div>
+
+      <div id="pantheon-grid" class="video-grid"></div>
+    </section>
+
+    <!-- ==========================================================
+         PAGE 4 : LE RADAR (RECOMMANDATIONS CROISÉES & JUMEAUX)
+         ========================================================== -->
+    <section id="p4" class="page-section">
+      <div class="section-head">
+        <div>
+          <h1 class="section-title">🧭 Le Radar de Recommandations</h1>
+          <p class="section-desc">Propositions sur-mesure dans chacun des 15 domaines d'après vos affinités cachées et publiques.</p>
+        </div>
+      </div>
+
+      <!-- Réglage du Radar -->
+      <div class="panel" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+        <div>
+          <div style="font-weight:800; font-size:14.5px;">🎛️ Calibrage de l'Algorithme Personnel</div>
+          <div style="font-size:12px; color:var(--text-muted);" id="radar-status-text">
+            Mode Haute Affinité : Priorité à vos domaines favoris et aux vidéos adorées par vos amis proches.
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; min-width:260px;">
+          <span style="font-size:12px; font-weight:700;">Affinités Pures</span>
+          <input type="range" min="0" max="100" value="25" class="slider" oninput="adjustRadar(this.value)">
+          <span style="font-size:12px; font-weight:700; color:var(--accent-2);">Hors-Piste</span>
+        </div>
+      </div>
+
+      <!-- Jumeaux Culturels -->
+      <div class="panel">
+        <div style="font-weight:800; font-size:14px; margin-bottom:12px;">🤝 Vos Jumeaux de Goûts détectés (Contacts & Réseau)</div>
+        <div id="twins-container" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px;"></div>
+      </div>
+
+      <div id="radar-grid" class="video-grid"></div>
+    </section>
+  </main>
+</div>
+
+<!-- ==========================================================
+     MINI LECTEUR FLOTTANT PERSISTANT (PICTURE-IN-PICTURE)
+     ========================================================== -->
+<div id="pip-dock" class="pip-dock">
+  <div class="pip-header">
+    <span id="pip-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:210px;">Lecture...</span>
+    <div style="display:flex; gap:6px;">
+      <button class="action-link" style="color:#fff;" onclick="closePip()">✕ Fermer</button>
+    </div>
+  </div>
+  <div id="pip-screen" class="pip-screen"></div>
+  <div style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px;">
+    <span id="pip-domain" style="color:var(--accent-2); font-weight:700;"></span>
+    <a id="pip-external" href="#" target="_blank" style="color:var(--text-main); font-weight:700; text-decoration:none;">↗ App Native</a>
+  </div>
+</div>
+
+<!-- ==========================================================
+     MODALE : CONNECTEURS RÉSEAUX SOCIAUX & RÉPERTOIRE
+     ========================================================== -->
+<div id="modal-sync" class="modal-overlay" onclick="closeModal('modal-sync')">
+  <div class="modal-window" onclick="event.stopPropagation()">
+    <h3 style="font-size:20px; font-weight:900; margin-bottom:6px;">🔗 Concentrateur Multi-Réseaux (Avec Consentement)</h3>
+    <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+      Choisissez les sources qui nourrissent votre empreinte culturelle. Vous gardez le contrôle total sur chaque connexion.
+    </p>
+    <div id="sync-list" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:18px;"></div>
+    <button class="btn btn-accent" style="width:100%; justify-content:center;" onclick="closeModal('modal-sync')">
+      Enregistrer & Recalculer mon Radar
+    </button>
+  </div>
+</div>
+
+<!-- ==========================================================
+     MODALE : CAPSULE D'AFFINITÉ VIRALE (WHATSAPP / CONTACTS)
+     ========================================================== -->
+<div id="modal-capsule" class="modal-overlay" onclick="closeModal('modal-capsule')">
+  <div class="modal-window" onclick="event.stopPropagation()">
+    <h3 style="font-size:20px; font-weight:900; margin-bottom:6px;">🎁 Générer une Capsule d'Affinité pour un Ami</h3>
+    <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+      Créez une invitation personnalisée avec 3 vidéos choisies pour un ami. En cliquant, il découvre son mini-profil pré-rempli avec vos goûts communs !
+    </p>
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <input type="text" id="cap-friend" placeholder="Prénom de l'ami (ex: Anne-Sophie, Ronny, Nicolas...)" value="Anne-Sophie" oninput="updateCapsulePreview()">
+      <select id="cap-domain" onchange="updateCapsulePreview()"></select>
+      <div id="cap-preview-box" style="padding:14px; border-radius:12px; background:rgba(0,230,118,0.1); border:1px solid rgba(0,230,118,0.35); font-size:13px; line-height:1.45;"></div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-whatsapp" style="flex:1; justify-content:center;" onclick="shareCapsuleWhatsApp()">
+          📲 Envoyer sur WhatsApp
+        </button>
+        <button class="btn" onclick="copyCapsuleText()">📋 Copier le lien d'invitation</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================
+     MODALE : STUDIO DESIGN & GESTION DES DONNÉES
+     ========================================================== -->
+<div id="modal-design" class="modal-overlay" onclick="closeModal('modal-design')">
+  <div class="modal-window" onclick="event.stopPropagation()">
+    <h3 style="font-size:20px; font-weight:900; margin-bottom:14px;">🎨 Studio Design & Personnalisation</h3>
+    <div style="margin-bottom:16px;">
+      <div style="font-size:13px; font-weight:700; margin-bottom:8px;">Thème Visuel :</div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn" onclick="applyTheme('onyx')">🌑 Onyx (Sombre Cinéma)</button>
+        <button class="btn" onclick="applyTheme('alabaster')">☀️ Alabaster (Clair Éditorial)</button>
+        <button class="btn" onclick="applyTheme('polar')">🧊 Verre Polaire</button>
+      </div>
+    </div>
+    <div style="margin-bottom:18px;">
+      <div style="font-size:13px; font-weight:700; margin-bottom:8px;">Couleur Néon Principale :</div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn" style="background:#7c5cff; color:#fff;" onclick="applyAccent('#7c5cff')">Violet Cosmique</button>
+        <button class="btn" style="background:#00e5ff; color:#000;" onclick="applyAccent('#00e5ff')">Cyan Solaire</button>
+        <button class="btn" style="background:#ff3d71; color:#fff;" onclick="applyAccent('#ff3d71')">Rubis</button>
+        <button class="btn" style="background:#00e676; color:#000;" onclick="applyAccent('#00e676')">Émeraude</button>
+      </div>
+    </div>
+    <div style="border-top:1px solid var(--border); padding-top:14px; display:flex; justify-content:space-between; align-items:center;">
+      <span style="font-size:12px; color:var(--text-muted);">Réinitialiser les données de démo :</span>
+      <button class="btn" style="color:var(--danger);" onclick="resetOrbitStorage()">🗑️ Réinitialiser</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* =========================================================================
+     1. TAXONOMIE COMPLÈTE : LES 15 PILIERS & 105 SOUS-DOMAINES (7 PAR PILIER)
+     ========================================================================= */
+  const DEFAULT_DOMAINS = [
+    { id: 1, icon: "🎵", name: "Musique & Son", affinity: 94, secret: false, keywords: ["rap", "boom-bap", "musique", "chanson", "folk", "concert", "live", "sample", "beat", "guitare", "accordeon", "instru", "album"], subs: ["Rap & Boom-Bap", "Chanson & Folk", "Rock & Indé", "Électro & Synth", "Classique & Jazz", "Live & Concerts", "Beatmaking & Prod"] },
+    { id: 2, icon: "💻", name: "Tech & Code", affinity: 96, secret: false, keywords: ["ia", "ai", "code", "dev", "serveur", "llm", "mistral", "gpu", "linux", "web", "app", "open-source", "algorithme", "cyber"], subs: ["Intelligence Artificielle", "Dév Web & Mobile", "Hardware & Serveurs", "Open-Source & Souveraineté", "Cybersécurité", "Robotique", "Cloud & Réseaux"] },
+    { id: 3, icon: "🎨", name: "Arts Visuels & Image", affinity: 91, secret: false, keywords: ["photo", "light painting", "lumiere", "objectif", "camera", "montage", "bd", "dessin", "3d", "tintin", "art", "couleur"], subs: ["Photographie & Lumière", "Vidéo & Montage", "BD & Illustration", "Design 3D & Motion", "Street Art", "Histoire de l'Art", "Scénographie"] },
+    { id: 4, icon: "🏀", name: "Sport & Performance", affinity: 86, secret: false, keywords: ["nba", "basket", "wembanyama", "curry", "ski", "glisse", "foot", "match", "sport", "entrainement", "fitness"], subs: ["Basketball & NBA", "Sports de Glisse & Ski", "Football", "Sports de Combat", "Fitness & Prépa", "Sports Extrêmes", "Analyse Tactique"] },
+    { id: 5, icon: "🔭", name: "Sciences & Futur", affinity: 82, secret: false, keywords: ["solaire", "lidar", "energie", "espace", "physique", "math", "science", "climat", "ecologie", "atome", "planete"], subs: ["Énergie & Solaire", "Espace & Astronomie", "Physique & Quantique", "Mathématiques", "Biologie & Vivant", "Écologie & Climat", "Médecine du Futur"] },
+    { id: 6, icon: "🎬", name: "Cinéma & Séries", affinity: 77, secret: false, keywords: ["film", "cinema", "serie", "realisateur", "court-metrage", "scénario", "acteur", "making-of", "docu"], subs: ["Critiques & Analyses", "Courts-Métrages", "Documentaires", "Making-of & Coulisses", "Animation", "Écriture de Scénario", "Cinéma Classique"] },
+    { id: 7, icon: "♟️", name: "Gaming & Stratégie", affinity: 75, secret: false, keywords: ["carte", "hearthstone", "deck", "strategie", "jeu", "gaming", "esport", "rpg", "indé", "gameplay"], subs: ["Jeux de Cartes & Deck", "Jeux Indés", "Game Design", "RPG & Aventure", "Esport & Compétition", "Rétrogaming", "Échecs & Stratégie"] },
+    { id: 8, icon: "🌍", name: "Voyage & Aventure", affinity: 72, secret: false, keywords: ["voyage", "afrique", "mali", "bamako", "mexique", "nature", "bivouac", "aventure", "monde", "expat"], subs: ["Carnets d'Afrique & Monde", "Vie à l'Étranger", "Exploration & Nature", "Vanlife & Bivouac", "Cultures & Rencontres", "Architecture & Villes", "Mer & Littoral"] },
+    { id: 9, icon: "🗣️", name: "Société & Débats", affinity: 68, secret: false, keywords: ["debat", "societe", "geopolitique", "philo", "economie", "droit", "media", "info", "ethique", "citoyen"], subs: ["Débats d'Idées", "Géopolitique", "Philosophie", "Économie & Entreprise", "Médias & Décryptage", "Justice & Droits", "Éthique Numérique"] },
+    { id: 10, icon: "🛠️", name: "Bricolage & Maker", affinity: 65, secret: false, keywords: ["bricolage", "maker", "autonomie", "arduino", "bois", "renovation", "atelier", "imprimante 3d", "outil"], subs: ["Autonomie & Solaire", "Électronique & IoT", "Menuiserie & Bois", "Rénovation Habitat", "Impression 3D", "Jardin & Permaculture", "Outils & Atelier"] },
+    { id: 11, icon: "🍲", name: "Cuisine & Terroir", affinity: 62, secret: false, keywords: ["cuisine", "recette", "frigo", "anti-gaspi", "plat", "terroir", "vin", "patisserie", "chef"], subs: ["Anti-Gaspi & Frigo", "Recettes du Quotidien", "Cuisine du Monde", "Pâtisserie", "Terroir & Artisans", "Nutrition & Santé", "Accords & Convivialité"] },
+    { id: 12, icon: "📚", name: "Éducation & Savoirs", affinity: 60, secret: false, keywords: ["langue", "turc", "anglais", "francais", "apprendre", "cours", "prof", "poesie", "ecriture", "memoire"], subs: ["Apprentissage des Langues", "Écriture & Poésie", "Pédagogie & Transmission", "Vulgarisation", "Mémoire & Lecture", "Éloquence", "Méthodologie"] },
+    { id: 13, icon: "🏛️", name: "Histoire & Civilisations", affinity: 54, secret: false, keywords: ["histoire", "antiquite", "moyen-age", "archeologie", "pyramide", "civilisation", "biographie", "archive"], subs: ["Antiquité", "Moyen Âge", "Histoire Contemporaine", "Archéologie", "Grandes Biographies", "Mythologies", "Histoire des Techniques"] },
+    { id: 14, icon: "🎤", name: "Humour & Scène", affinity: 48, secret: true, keywords: ["humour", "stand-up", "sketch", "rire", "comedie", "impro", "parodie", "blague"], subs: ["Stand-Up", "Sketchs & Parodies", "Improvisation", "Formats Courts", "Satire", "Coulisses de Scène", "Classiques de l'Humour"] },
+    { id: 15, icon: "🌱", name: "Bien-être & Quotidien", affinity: 50, secret: false, keywords: ["entraide", "voisin", "quartier", "animaux", "chien", "chat", "psychologie", "minimalisme", "famille"], subs: ["Entraide & Lien Local", "Animaux & Compagnons", "Psychologie", "Minimalisme", "Vie de Famille", "Méditation & Calme", "Organisation"] }
+  ];
+
+  /* =========================================================================
+     2. BASE DE VIDÉOS INITIALE ( PRÉ-REMPLISSAGE DU JOUR 1 )
+     ========================================================================= */
+  const DEFAULT_VIDEOS = [
+    {
+      id: 1001,
+      title: "Architecture IA Locale : Faire tourner des modèles 70B en totale souveraineté",
+      platform: "youtube",
+      ratio: "16-9",
+      domain: "Tech & Code",
+      subdomain: "Intelligence Artificielle",
+      user: "Thomas_AI",
+      isFriend: true,
+      comment: "Zéro télémétrie externe, tout tourne en mémoire unifiée locale. Indispensable.",
+      score: 9.8,
+      votes: 412,
+      hoursAgo: 4,
+      youtubeId: "aircAruvnKk",
+      rawUrl: "https://www.youtube.com/watch?v=aircAruvnKk",
+      thumb: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80",
+      commentsList: [
+        { author: "Anne-Sophie", text: "Ultra clair même sur la partie matériel !" },
+        { author: "Lucas_Dev", text: "Noté 10/10, exactement ce que je cherchais." }
+      ]
+    },
+    {
+      id: 1002,
+      title: "Sculpter la nuit : Secrets du Light Painting et pose longue créative",
+      platform: "instagram",
+      ratio: "9-16",
+      domain: "Arts Visuels & Image",
+      subdomain: "Photographie & Lumière",
+      user: "Claire_Optic",
+      isFriend: true,
+      comment: "Tout est fait directement à la prise de vue dans le noir, aucune IA ni retouche.",
+      score: 9.6,
+      votes: 285,
+      hoursAgo: 7,
+      youtubeId: "5qap5aO4i9A",
+      rawUrl: "https://www.instagram.com/reel/lightpainting",
+      thumb: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=800&q=80",
+      commentsList: [
+        { author: "Ronny", text: "Les couleurs sont folles !" }
+      ]
+    },
+    {
+      id: 1003,
+      title: "L'école du Micro d'Argent & l'héritage du Boom-Bap conscient en France",
+      platform: "youtube",
+      ratio: "16-9",
+      domain: "Musique & Son",
+      subdomain: "Rap & Boom-Bap",
+      user: "Karim_Vinyl",
+      isFriend: false,
+      comment: "Une analyse chirurgicale de l'écriture, des rimes multisyllabiques et du sampling.",
+      score: 9.9,
+      votes: 930,
+      hoursAgo: 15,
+      youtubeId: "jfKfPfyJRdk",
+      rawUrl: "https://www.youtube.com/watch?v=jfKfPfyJRdk",
+      thumb: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
+      commentsList: []
+    },
+    {
+      id: 1004,
+      title: "Victor Wembanyama : Analyse de son impact défensif et tir à 3 points",
+      platform: "tiktok",
+      ratio: "9-16",
+      domain: "Sport & Performance",
+      subdomain: "Basketball & NBA",
+      user: "Hoops_Lab",
+      isFriend: true,
+      comment: "En 1 minute on voit comment il force toute l'équipe adverse à changer ses trajectoires.",
+      score: 9.5,
+      votes: 520,
+      hoursAgo: 2,
+      youtubeId: "3JZ_D3ELwOQ",
+      rawUrl: "https://www.tiktok.com/@nba/video/wemby",
+      thumb: "https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=800&q=80",
+      commentsList: []
+    },
+    {
+      id: 1005,
+      title: "Modélisation Solaire 3D par LiDAR : Calculer le potentiel exact de chaque toiture",
+      platform: "youtube",
+      ratio: "16-9",
+      domain: "Sciences & Futur",
+      subdomain: "Énergie & Solaire",
+      user: "Helios_Ing",
+      isFriend: true,
+      comment: "La précision des nuages de points LiDAR appliquée à l'autonomie énergétique.",
+      score: 9.7,
+      votes: 240,
+      hoursAgo: 6,
+      youtubeId: "rUxyKA_-grg",
+      rawUrl: "https://www.youtube.com/watch?v=rUxyKA_-grg",
+      thumb: "https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&w=800&q=80",
+      commentsList: []
+    },
+    {
+      id: 1006,
+      title: "Game Design de Jeux de Cartes : Équilibrer les synergies et la courbe d'action",
+      platform: "twitch",
+      ratio: "16-9",
+      domain: "Gaming & Stratégie",
+      subdomain: "Jeux de Cartes & Deck",
+      user: "MasterDeck",
+      isFriend: false,
+      comment: "Passionnant pour quiconque crée ses propres règles et mécaniques de cartes.",
+      score: 9.3,
+      votes: 178,
+      hoursAgo: 10,
+      youtubeId: "DWcJFNfaw9c",
+      rawUrl: "https://www.twitch.tv/videos/carddesign",
+      thumb: "https://images.unsplash.com/photo-1611996575749-79a3a250f948?auto=format&fit=crop&w=800&q=80",
+      commentsList: []
+    }
+  ];
+
+  const DEFAULT_SOCIALS = [
+    { id: "youtube", name: "▶️ YouTube Premium / API", desc: "Abonnements, Playlists & Likes OAuth", active: true },
+    { id: "tiktok", name: "🎵 TikTok Data Bridge", desc: "Créateurs suivis & Vidéos favorites", active: true },
+    { id: "instagram", name: "📸 Instagram Reels", desc: "Comptes suivis & Intérêts visuels", active: true },
+    { id: "whatsapp", name: "💬 WhatsApp & Répertoire", desc: "Amis croisés par hachage privé", active: true },
+    { id: "twitch", name: "🟣 Twitch", desc: "Chaînes live & Catégories", active: false },
+    { id: "facebook", name: "📘 Facebook / X", desc: "Pages suivies & Cercle social", active: false }
+  ];
+
+  const DEFAULT_TWINS = [
+    { name: "Anne-Sophie (WhatsApp)", match: 95, domains: "Musique & Son • Arts Visuels", lastPick: "A noté 9.9/10 un live acoustique" },
+    { name: "Ronny (Répertoire)", match: 91, domains: "Humour • Bien-être & Animaux", lastPick: "A partagé 3 vidéos aujourd'hui" },
+    { name: "Nicolas (Contact)", match: 89, domains: "Cinéma • Musique & Son", lastPick: "Même empreinte YouTube & Insta" },
+    { name: "Séverine (Contact)", match: 88, domains: "Voyage & Aventure • Musique", lastPick: "A adoré un carnet de voyage" }
+  ];
+
+  /* =========================================================================
+     3. ÉTAT DE L'APPLICATION & PERSISTANCE LOCALSTORAGE
+     ========================================================================= */
+  let state = {
+    profile: { name: "Valentin R.", initials: "VR", bio: "Créateur Tech, Image & Son • Explorateur des 15 Domaines" },
+    theme: "onyx",
+    accent: "#7c5cff",
+    domains: DEFAULT_DOMAINS,
+    videos: DEFAULT_VIDEOS,
+    socials: DEFAULT_SOCIALS,
+    twins: DEFAULT_TWINS,
+    feedFilter: "all",
+    profileTab: "wall",
+    activePillar: "Musique & Son",
+    activeSubpillar: "Tous",
+    pantheonMode: "gravity",
+    radarExploration: 25,
+    searchQuery: ""
+  };
+
+  function loadState() {
+    try {
+      const saved = localStorage.getItem("ORBIT_STATE_V2");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        state = { ...state, ...parsed };
+      }
+    } catch (e) {
+      console.warn("Initialisation mémoire par défaut");
+    }
+  }
+
+  function saveState() {
+    try {
+      localStorage.setItem("ORBIT_STATE_V2", JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  function resetOrbitStorage() {
+    if (confirm("Réinitialiser toutes les données locales d'Orbit aux valeurs d'origine ?")) {
+      localStorage.removeItem("ORBIT_STATE_V2");
+      location.reload();
+    }
+  }
+
+  function exportOrbitData() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
+    const dlAnchor = document.createElement('a');
+    dlAnchor.setAttribute("href", dataStr);
+    dlAnchor.setAttribute("download", "orbit_backup_database.json");
+    document.body.appendChild(dlAnchor);
+    dlAnchor.click();
+    dlAnchor.remove();
+  }
+
+  /* =========================================================================
+     4. INITIALISATION GÉNÉRALE
+     ========================================================================= */
+  function initOrbit() {
+    loadState();
+    applyTheme(state.theme, false);
+    applyAccent(state.accent, false);
+    initComposerSelects();
+    renderAll();
+  }
+
+  function renderAll() {
+    renderHeaderSync();
+    renderFeed();
+    renderProfile();
+    renderPantheonPillars();
+    renderPantheonVideos();
+    renderRadar();
+    renderSocialModal();
+    initCapsuleModal();
+  }
+
+  function goPage(pageId, btnEl) {
+    document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
+    document.getElementById(pageId).classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  /* =========================================================================
+     5. PARSEUR D'URL MULTI-PLATEFORMES & AUTO-CLASSIFICATION IA LOCALE
+     ========================================================================= */
+  function initComposerSelects() {
+    const domSel = document.getElementById('inp-domain');
+    domSel.innerHTML = state.domains.map(d => `<option value="${d.name}">${d.icon} ${d.name}</option>`).join('');
+    populateComposerSubdomains();
+  }
+
+  function populateComposerSubdomains() {
+    const domName = document.getElementById('inp-domain').value;
+    const domObj = state.domains.find(d => d.name === domName) || state.domains[0];
+    const subSel = document.getElementById('inp-subdomain');
+    subSel.innerHTML = domObj.subs.map(s => `<option value="${s}">${s}</option>`).join('');
+  }
+
+  function parseVideoUrl(url) {
+    let platform = "youtube";
+    let ratio = "16-9";
+    let youtubeId = "aircAruvnKk";
+
+    const ytRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+    const match = url.match(ytRegex);
+    if (match && match[1]) {
+      youtubeId = match[1];
+    }
+
+    if (url.includes("shorts/")) {
+      platform = "youtube";
+      ratio = "9-16";
+    } else if (url.includes("tiktok.com")) {
+      platform = "tiktok";
+      ratio = "9-16";
+    } else if (url.includes("instagram.com")) {
+      platform = "instagram";
+      ratio = "9-16";
+    } else if (url.includes("twitch.tv")) {
+      platform = "twitch";
+      ratio = "16-9";
+    }
+
+    const thumb = (platform === "youtube" && match)
+      ? `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`
+      : "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80";
+
+    return { platform, ratio, youtubeId, thumb };
+  }
+
+  function autoClassifyInput() {
+    const url = document.getElementById('inp-url').value.toLowerCase();
+    const title = document.getElementById('inp-title').value.toLowerCase();
+    const combined = `${url} ${title}`;
+    const banner = document.getElementById('ai-classifier-status');
+
+    if (combined.trim().length < 3) return;
+
+    for (const dom of state.domains) {
+      for (const kw of dom.keywords) {
+        if (combined.includes(kw)) {
+          document.getElementById('inp-domain').value = dom.name;
+          populateComposerSubdomains();
+          banner.innerHTML = `✨ <strong>IA Auto-Tri :</strong> Classé dans <u>${dom.icon} ${dom.name}</u> (mot-clé détecté : "${kw}")`;
+          return;
+        }
+      }
+    }
+
+    const parsed = parseVideoUrl(url);
+    banner.innerHTML = `📡 Plateforme détectée : <strong>${parsed.platform.toUpperCase()}</strong> (Format ${parsed.ratio})`;
+  }
+
+  function submitNewVideo() {
+    const rawUrl = document.getElementById('inp-url').value.trim();
+    const titleInput = document.getElementById('inp-title').value.trim();
+    const commentInput = document.getElementById('inp-comment').value.trim();
+    const domain = document.getElementById('inp-domain').value;
+    const subdomain = document.getElementById('inp-subdomain').value;
+
+    if (!rawUrl && !titleInput) {
+      alert("Indiquez au moins un lien vidéo (YouTube, TikTok, Insta...) ou un titre.");
+      return;
+    }
+
+    const parsed = parseVideoUrl(rawUrl || "https://youtube.com");
+    const newVideo = {
+      id: Date.now(),
+      title: titleInput || `Découverte ${parsed.platform.toUpperCase()} — ${subdomain}`,
+      platform: parsed.platform,
+      ratio: parsed.ratio,
+      domain,
+      subdomain,
+      user: state.profile.name,
+      isFriend: true,
+      comment: commentInput || "Je partage cette pépite avec vous !",
+      score: 9.6,
+      votes: 1,
+      hoursAgo: 1,
+      youtubeId: parsed.youtubeId,
+      rawUrl: rawUrl || `https://www.youtube.com/watch?v=${parsed.youtubeId}`,
+      thumb: parsed.thumb,
+      commentsList: []
+    };
+
+    state.videos.unshift(newVideo);
+
+    // Augmente automatiquement l'affinité de l'utilisateur dans ce domaine
+    const domObj = state.domains.find(d => d.name === domain);
+    if (domObj && domObj.affinity < 99) domObj.affinity = Math.min(100, domObj.affinity + 2);
+
+    saveState();
+    document.getElementById('inp-url').value = "";
+    document.getElementById('inp-title').value = "";
+    document.getElementById('inp-comment').value = "";
+    renderAll();
+  }
+
+  /* =========================================================================
+     6. COMPOSANT UNIVERSEL DE CARTE VIDÉO (AVEC VOTE & COMMENTAIRES)
+     ========================================================================= */
+  function buildVideoCard(v, rankNumber = null) {
+    const platClass = `plat-${v.platform}`;
+    const ratioClass = v.ratio === "9-16" ? "ratio-9-16" : "ratio-16-9";
+    const rankHtml = rankNumber ? `<span style="background:var(--accent); color:#fff; padding:2px 8px; border-radius:6px; font-size:12px; margin-right:6px;">#${rankNumber}</span>` : "";
+    const commentsHtml = (v.commentsList || []).map(c => `
+      <div style="margin-bottom:4px;"><strong>${c.author} :</strong> <span style="color:var(--text-muted);">${c.text}</span></div>
+    `).join('');
+
+    return `
+      <article class="vcard">
+        <div class="vcard-header">
+          <div class="author-wrap">
+            <div class="avatar">${v.user.substring(0,2).toUpperCase()}</div>
+            <div>
+              <div style="font-size:13px; font-weight:800;">
+                ${v.user} ${v.isFriend ? '<span style="color:var(--success); font-size:11px;">● Ami</span>' : ''}
+              </div>
+              <div style="font-size:11px; color:var(--text-muted);">Il y a ${v.hoursAgo}h</div>
+            </div>
+          </div>
+          <span class="plat-pill ${platClass}">${v.platform}</span>
+        </div>
+
+        <div class="vcard-media ${ratioClass}" onclick="launchPipPlayer(${v.id})">
+          <img src="${v.thumb}" alt="${v.title}" loading="lazy">
+          <div class="media-overlay">
+            <div class="play-trigger">▶</div>
+          </div>
+          <div class="badge-domain">${v.domain} › ${v.subdomain}</div>
+          <div class="badge-score">★ <span class="js-score-${v.id}">${v.score.toFixed(1)}</span>/10</div>
+        </div>
+
+        <div class="vcard-body">
+          <div>
+            <h4 class="vcard-title">${rankHtml}${v.title}</h4>
+            <p class="vcard-note-text" style="margin-top:8px;">"${v.comment}"</p>
+          </div>
+
+          <div class="vcard-footer">
+            <div class="vote-row">
+              <span style="font-size:11px; color:var(--text-muted); font-weight:700;">Noter :</span>
+              <input type="range" min="1" max="10" step="0.5" value="${v.score.toFixed(1)}" class="slider"
+                onchange="rateVideo(${v.id}, this.value)">
+              <span style="font-size:11px; color:var(--text-muted);" class="js-votes-${v.id}">${v.votes} v.</span>
+            </div>
+
+            <div class="card-actions">
+              <button class="action-link" onclick="toggleComments(${v.id})">
+                💬 Discussion (${(v.commentsList || []).length})
+              </button>
+              <button class="action-link" onclick="repostToMyWall(${v.id})">
+                🔁 Partager sur ma Page
+              </button>
+              <a href="${v.rawUrl}" target="_blank" class="action-link" style="text-decoration:none;">
+                ↗ Source
+              </a>
+            </div>
+
+            <div id="comments-${v.id}" class="comments-box">
+              <div id="comments-list-${v.id}" style="margin-bottom:8px;">
+                ${commentsHtml || '<div style="color:var(--text-muted);">Aucun commentaire pour le moment.</div>'}
+              </div>
+              <div style="display:flex; gap:6px;">
+                <input type="text" id="comment-inp-${v.id}" placeholder="Ajouter un commentaire..." style="padding:6px 10px; font-size:12px;">
+                <button class="btn btn-accent" style="padding:6px 10px; font-size:11px;" onclick="addComment(${v.id})">OK</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    `;
+  }
+
+  function rateVideo(videoId, newNote) {
+    const v = state.videos.find(item => item.id === videoId);
+    if (!v) return;
+    const val = parseFloat(newNote);
+    v.score = ((v.score * v.votes) + val) / (v.votes + 1);
+    v.votes += 1;
+
+    // Mise à jour de l'affinité utilisateur dans le domaine voté
+    const dom = state.domains.find(d => d.name === v.domain);
+    if (dom && val >= 8) dom.affinity = Math.min(100, dom.affinity + 1);
+
+    saveState();
+    document.querySelectorAll(`.js-score-${v.id}`).forEach(el => el.textContent = v.score.toFixed(1));
+    document.querySelectorAll(`.js-votes-${v.id}`).forEach(el => el.textContent = `${v.votes} v.`);
+    renderProfile();
+  }
+
+  function toggleComments(videoId) {
+    const box = document.getElementById(`comments-${videoId}`);
+    if (box) box.classList.toggle('open');
+  }
+
+  function addComment(videoId) {
+    const inp = document.getElementById(`comment-inp-${videoId}`);
+    if (!inp || !inp.value.trim()) return;
+    const v = state.videos.find(item => item.id === videoId);
+    if (!v) return;
+    v.commentsList = v.commentsList || [];
+    v.commentsList.push({ author: state.profile.name, text: inp.value.trim() });
+    inp.value = "";
+    saveState();
+    renderAll();
+  }
+
+  function repostToMyWall(videoId) {
+    const orig = state.videos.find(item => item.id === videoId);
+    if (!orig) return;
+    const note = prompt("Ajouter un mot en partageant cette vidéo sur votre Page :", "Coup de cœur partagé sur mon mur !");
+    if (note === null) return;
+    const copy = {
+      ...orig,
+      id: Date.now(),
+      user: state.profile.name,
+      comment: note || orig.comment,
+      hoursAgo: 1
+    };
+    state.videos.unshift(copy);
+    saveState();
+    renderAll();
+  }
+
+  /* =========================================================================
+     7. RENDU PAGE 1 (LE FLUX) & RECHERCHE GLOBALE
+     ========================================================================= */
+  function renderFeed() {
+    const grid = document.getElementById('feed-grid');
+    let list = [...state.videos];
+
+    if (state.searchQuery) {
+      const q = state.searchQuery.toLowerCase();
+      list = list.filter(v =>
+        v.title.toLowerCase().includes(q) ||
+        v.domain.toLowerCase().includes(q) ||
+        v.subdomain.toLowerCase().includes(q) ||
+        v.user.toLowerCase().includes(q) ||
+        v.comment.toLowerCase().includes(q)
+      );
+    }
+
+    if (state.feedFilter === 'friends') list = list.filter(v => v.isFriend);
+    else if (state.feedFilter === 'youtube') list = list.filter(v => v.platform === 'youtube');
+    else if (state.feedFilter === 'vertical') list = list.filter(v => v.ratio === '9-16');
+    else if (state.feedFilter === 'top95') list = list.filter(v => v.score >= 9.5);
+
+    grid.innerHTML = list.map(v => buildVideoCard(v)).join('');
+  }
+
+  function setFeedFilter(filter, btnEl) {
+    state.feedFilter = filter;
+    btnEl.parentElement.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    btnEl.classList.add('active');
+    renderFeed();
+  }
+
+  function handleGlobalSearch(val) {
+    state.searchQuery = val.trim();
+    renderFeed();
+    renderPantheonVideos();
+  }
+
+  /* =========================================================================
+     8. RENDU PAGE 2 (MA PAGE, ADN CULTUREL & JARDIN SECRET)
+     ========================================================================= */
+  function renderProfile() {
+    document.getElementById('prof-name').textContent = state.profile.name;
+    document.getElementById('prof-avatar').textContent = state.profile.initials;
+    document.getElementById('prof-bio').textContent = state.profile.bio;
+
+    const badgesBox = document.getElementById('prof-badges');
+    badgesBox.innerHTML = state.socials.filter(s => s.active).map(s => `
+      <span class="plat-pill plat-${s.id === 'whatsapp' ? 'tiktok' : s.id}">${s.name.split(' ')[1]} Sync ✓</span>
+    `).join('');
+
+    const dnaGrid = document.getElementById('dna-grid');
+    dnaGrid.innerHTML = state.domains.map(d => `
+      <div class="dna-card ${d.secret ? 'is-secret' : ''}">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:12.5px; font-weight:800;">
+          <span>${d.icon} ${d.name}</span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="color:var(--accent-2);">${d.affinity}%</span>
+            <button class="action-link" onclick="toggleDomainPrivacy(${d.id})">
+              ${d.secret ? '🔒 Secret' : '👁️ Public'}
+            </button>
+          </div>
+        </div>
+        <div class="bar-bg">
+          <div class="bar-fill" style="width:${d.affinity}%"></div>
+        </div>
+      </div>
+    `).join('');
+
+    const profGrid = document.getElementById('profile-grid');
+    let list = [...state.videos];
+    if (state.profileTab === 'wall') {
+      list = list.filter(v => v.user === state.profile.name || v.isFriend);
+    } else if (state.profileTab === 'favs') {
+      list = list.filter(v => v.score >= 9.5);
+    } else if (state.profileTab === 'secret') {
+      const secretNames = state.domains.filter(d => d.secret).map(d => d.name);
+      list = list.filter(v => secretNames.includes(v.domain));
+    }
+    profGrid.innerHTML = list.length
+      ? list.map(v => buildVideoCard(v)).join('')
+      : `<div class="panel" style="grid-column:1/-1; text-align:center; color:var(--text-muted);">Aucune vidéo dans cet onglet pour le moment.</div>`;
+  }
+
+  function toggleDomainPrivacy(id) {
+    const dom = state.domains.find(d => d.id === id);
+    if (dom) {
+      dom.secret = !dom.secret;
+      saveState();
+      renderProfile();
+    }
+  }
+
+  function switchProfileTab(tab, btnEl) {
+    state.profileTab = tab;
+    btnEl.parentElement.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    btnEl.classList.add('active');
+    renderProfile();
+  }
+
+  function editProfilePrompt() {
+    const newName = prompt("Votre nom ou pseudo sur Orbit :", state.profile.name);
+    if (!newName) return;
+    const newBio = prompt("Votre bio (visible sur votre Page 2) :", state.profile.bio);
+    state.profile.name = newName;
+    state.profile.initials = newName.substring(0, 2).toUpperCase();
+    if (newBio) state.profile.bio = newBio;
+    saveState();
+    renderProfile();
+  }
+
+  /* =========================================================================
+     9. RENDU PAGE 3 (LE PANTHÉON DES 15 DOMAINES & 105 SOUS-DOMAINES)
+     ========================================================================= */
+  function renderPantheonPillars() {
+    const pGrid = document.getElementById('pillars-grid');
+    pGrid.innerHTML = state.domains.map(d => `
+      <div class="pillar-card ${d.name === state.activePillar ? 'active' : ''}" onclick="selectPillar('${d.name}')">
+        <span style="font-size:18px;">${d.icon}</span>
+        <span>${d.name}</span>
+      </div>
+    `).join('');
+
+    const subBar = document.getElementById('subpillars-bar');
+    const currentDom = state.domains.find(d => d.name === state.activePillar) || state.domains[0];
+    const allSubs = ["Tous", ...currentDom.subs];
+    subBar.innerHTML = allSubs.map(s => `
+      <button class="chip ${s === state.activeSubpillar ? 'active' : ''}" onclick="selectSubpillar('${s}')">${s}</button>
+    `).join('');
+  }
+
+  function selectPillar(name) {
+    state.activePillar = name;
+    state.activeSubpillar = "Tous";
+    renderPantheonPillars();
+    renderPantheonVideos();
+  }
+
+  function selectSubpillar(sub) {
+    state.activeSubpillar = sub;
+    renderPantheonPillars();
+    renderPantheonVideos();
+  }
+
+  function setPantheonMode(mode, btnEl) {
+    state.pantheonMode = mode;
+    btnEl.parentElement.querySelectorAll('.btn').forEach(b => b.classList.remove('btn-accent'));
+    btnEl.classList.add('btn-accent');
+    renderPantheonVideos();
+  }
+
+  function renderPantheonVideos() {
+    const grid = document.getElementById('pantheon-grid');
+    let list = state.videos.filter(v => v.domain === state.activePillar);
+    if (state.activeSubpillar !== "Tous") {
+      list = list.filter(v => v.subdomain === state.activeSubpillar);
+    }
+    if (list.length === 0) {
+      list = [...state.videos];
+    }
+
+    // Moteur mathématique de Gravité Temporelle (renouvelle le Top)
+    list.sort((a, b) => {
+      if (state.pantheonMode === 'gravity') {
+        const gA = (a.score * Math.log10(a.votes + 10)) / Math.pow(a.hoursAgo + 2, 0.65);
+        const gB = (b.score * Math.log10(b.votes + 10)) / Math.pow(b.hoursAgo + 2, 0.65);
+        return gB - gA;
+      }
+      if (state.pantheonMode === 'emerging') return a.hoursAgo - b.hoursAgo;
+      if (state.pantheonMode === 'alltime') return (b.score * b.votes) - (a.score * a.votes);
+      return b.score - a.score;
+    });
+
+    grid.innerHTML = list.map((v, i) => buildVideoCard(v, i + 1)).join('');
+  }
+
+  /* =========================================================================
+     10. RENDU PAGE 4 (LE RADAR PERSONNALISÉ & JUMEAUX DE GOÛTS)
+     ========================================================================= */
+  function renderRadar() {
+    const twinsBox = document.getElementById('twins-container');
+    twinsBox.innerHTML = state.twins.map(t => `
+      <div style="padding:12px; border-radius:12px; background:rgba(255,255,255,0.03); border:1px solid var(--border);">
+        <div style="font-weight:800; font-size:13.5px;">${t.name}</div>
+        <div style="font-size:12px; color:var(--success); font-weight:700; margin:4px 0;">
+          ⚡ ${t.match}% d'affinité • ${t.domains}
+        </div>
+        <div style="font-size:11px; color:var(--text-muted);">${t.lastPick}</div>
+      </div>
+    `).join('');
+
+    const radarGrid = document.getElementById('radar-grid');
+    let list = [...state.videos];
+
+    // Tri par affinité utilisateur (inclut aussi les domaines en Jardin Secret !)
+    list.sort((a, b) => {
+      const domA = state.domains.find(d => d.name === a.domain)?.affinity || 50;
+      const domB = state.domains.find(d => d.name === b.domain)?.affinity || 50;
+      return state.radarExploration > 60 ? (domA - domB) : (domB - domA);
+    });
+
+    radarGrid.innerHTML = list.map(v => buildVideoCard(v)).join('');
+  }
+
+  function adjustRadar(val) {
+    state.radarExploration = parseInt(val, 10);
+    const label = document.getElementById('radar-status-text');
+    if (val < 35) {
+      label.textContent = `Mode Haute Affinité (${100 - val}% cœur de cible) : Priorité absolue à vos domaines favoris.`;
+    } else if (val < 70) {
+      label.textContent = `Mode Équilibré : Mélange optimal entre vos passions et des pépites d'autres domaines.`;
+    } else {
+      label.textContent = `Mode Exploration Hors-Piste (${val}%) : Découverte des meilleures vidéos dans les domaines que vous connaissez moins !`;
+    }
+    renderRadar();
+  }
+
+  /* =========================================================================
+     11. LECTEUR PICTURE-IN-PICTURE (PiP) PERSISTANT ENTRE LES 4 PAGES
+     ========================================================================= */
+  function launchPipPlayer(videoId) {
+    const v = state.videos.find(item => item.id === videoId);
+    if (!v) return;
+    const dock = document.getElementById('pip-dock');
+    document.getElementById('pip-title').textContent = v.title;
+    document.getElementById('pip-domain').textContent = `${v.domain} › ${v.subdomain}`;
+    document.getElementById('pip-external').href = v.rawUrl;
+
+    document.getElementById('pip-screen').innerHTML = `
+      <iframe width="100%" height="100%"
+        src="https://www.youtube-nocookie.com/embed/${v.youtubeId}?autoplay=1"
+        frameborder="0" allow="autoplay; encrypted-media" allowfullscreen>
+      </iframe>
+    `;
+    dock.classList.add('active');
+  }
+
+  function closePip() {
+    document.getElementById('pip-dock').classList.remove('active');
+    document.getElementById('pip-screen').innerHTML = '';
+  }
+
+  /* =========================================================================
+     12. CONNECTEURS SOCIAUX, CAPSULE VIRALE WHATSAPP & THÈMES
+     ========================================================================= */
+  function renderHeaderSync() {
+    const count = state.socials.filter(s => s.active).length;
+    document.getElementById('sync-counter').textContent = count;
+  }
+
+  function renderSocialModal() {
+    const box = document.getElementById('sync-list');
+    box.innerHTML = state.socials.map(s => `
+      <div onclick="toggleSocial('${s.id}')" style="padding:12px; border-radius:12px; border:1px solid ${s.active ? 'var(--success)' : 'var(--border)'}; background:${s.active ? 'rgba(0,230,118,0.08)' : 'var(--bg-card)'}; cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-weight:800; font-size:13px;">${s.name}</div>
+          <div style="font-size:11px; color:var(--text-muted);">${s.desc}</div>
+        </div>
+        <span style="font-size:12px; font-weight:800; color:${s.active ? 'var(--success)' : 'var(--text-muted)'};">
+          ${s.active ? '✓ Actif' : 'Activer'}
+        </span>
+      </div>
+    `).join('');
+  }
+
+  function toggleSocial(id) {
+    const item = state.socials.find(s => s.id === id);
+    if (item) {
+      item.active = !item.active;
+      saveState();
+      renderHeaderSync();
+      renderSocialModal();
+      renderProfile();
+    }
+  }
+
+  function initCapsuleModal() {
+    const sel = document.getElementById('cap-domain');
+    sel.innerHTML = state.domains.map(d => `<option value="${d.name}">${d.icon} ${d.name} (${d.affinity}% d'affinité)</option>`).join('');
+    updateCapsulePreview();
+  }
+
+  function updateCapsulePreview() {
+    const friend = document.getElementById('cap-friend').value || "mon ami";
+    const domain = document.getElementById('cap-domain').value || "Musique & Son";
+    const box = document.getElementById('cap-preview-box');
+    box.innerHTML = `
+      "Salut <strong>${friend}</strong> ! Je t'ai préparé ta capsule vidéo personnalisée sur <strong>ORBIT</strong> dans le domaine <strong>${domain}</strong>. J'ai sélectionné 3 pépites qui correspondent à 95% à nos goûts communs, viens voir ton profil pré-rempli !"
+    `;
+  }
+
+  function shareCapsuleWhatsApp() {
+    const friend = document.getElementById('cap-friend').value || "ami";
+    const domain = document.getElementById('cap-domain').value;
+    const text = encodeURIComponent(`Salut ${friend} ! Je t'ai préparé ta sélection vidéo sur ORBIT dans la catégorie "${domain}" (95% d'affinité avec nos goûts). Découvre tes 3 vidéos ici : https://orbit-app.fr/?capsule=${encodeURIComponent(friend)}&domain=${encodeURIComponent(domain)}`);
+    window.open(`https://wa.me/?text=${text}`, '_blank');
+  }
+
+  function copyCapsuleText() {
+    const friend = document.getElementById('cap-friend').value || "ami";
+    const domain = document.getElementById('cap-domain').value;
+    const text = `Salut ${friend} ! Viens voir les 3 vidéos que j'ai choisies pour toi sur ORBIT (${domain}) : https://orbit-app.fr/?capsule=${encodeURIComponent(friend)}`;
+    navigator.clipboard.writeText(text);
+    alert("Invitation copiée dans le presse-papiers !");
+  }
+
+  function openModal(id) { document.getElementById(id).classList.add('open'); }
+  function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+  function applyTheme(themeName, save = true) {
+    document.documentElement.setAttribute('data-theme', themeName);
+    state.theme = themeName;
+    if (save) saveState();
+  }
+
+  function applyAccent(hex, save = true) {
+    document.documentElement.style.setProperty('--accent', hex);
+    document.documentElement.style.setProperty('--accent-glow', hex + '55');
+    state.accent = hex;
+    if (save) saveState();
+  }
+
+  window.addEventListener('DOMContentLoaded', initOrbit);
+</script>
+</body>
+</html>

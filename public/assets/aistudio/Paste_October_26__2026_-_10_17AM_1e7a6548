@@ -1,0 +1,960 @@
+Qu'est-ce que tu penses de ce prompt ? 
+ORBIT v2.0 — ARCHITECTURE LOCAL-FIRST ET SOUVERAINETÉ NUMÉRIQUE
+
+MISSION GÉNÉRALE
+
+Tu travailles sur ORBIT v2.0, un agrégateur social qui rassemble des contenus provenant de plateformes externes, notamment YouTube, TikTok, Instagram et Twitch.
+
+ORBIT centralise les liens, les métadonnées accessibles, les interactions sociales, les évaluations, les recommandations, les préférences culturelles et les collections personnelles.
+
+L'application repose sur quatre pages principales :
+
+Le Flux.
+
+Ma Page.
+
+Le Panthéon.
+
+Le Radar.
+
+L'objectif de cette évolution est de faire d'ORBIT une application durable, personnalisable, économe en ressources et respectueuse de la vie privée.
+
+Je veux que tu conçoives ORBIT selon une architecture LOCAL-FIRST : lorsque cela est techniquement possible, les données et les traitements restent sur l'appareil de l'utilisateur plutôt que d'être systématiquement envoyés à un serveur.
+
+Ne reconstruis pas l'application depuis zéro. Analyse le projet existant et fais évoluer son architecture sans supprimer ses fonctionnalités opérationnelles.
+
+Toutes les nouvelles fonctionnalités doivent respecter les principes décrits ci-dessous.
+
+1. PRINCIPE ABSOLU : ORBIT N'HÉBERGE PAS LES VIDÉOS
+
+ORBIT ne doit pas devenir une plateforme de stockage et de diffusion vidéo.
+
+Je ne souhaite pas financer :
+
+Des serveurs de stockage vidéo.
+
+Des infrastructures de transcodage.
+
+Des CDN destinés à diffuser les vidéos.
+
+Des systèmes d'upload vidéo vers les serveurs d'ORBIT.
+
+Des téléchargements automatiques de vidéos tierces.
+
+Des copies locales centralisées des contenus vidéo.
+
+Les vidéos restent hébergées par leurs plateformes d'origine.
+
+ORBIT conserve essentiellement les références nécessaires pour retrouver les contenus : URL, identifiants externes, métadonnées autorisées et informations sociales propres à ORBIT.
+
+Lecteurs externes
+
+Lorsqu'un utilisateur ouvre une vidéo, ORBIT doit utiliser, selon les possibilités de chaque plateforme :
+
+Le lecteur officiel intégré.
+
+Le mécanisme d'intégration autorisé.
+
+Une ouverture dans l'application officielle.
+
+Une ouverture dans le navigateur externe.
+
+Ne pas créer un lecteur propriétaire qui téléchargerait ou retransmettrait les vidéos des autres plateformes.
+
+Ne pas contourner les protections techniques, les restrictions d'intégration, les mécanismes d'authentification ou les conditions d'utilisation des plateformes.
+
+Si une vidéo ne peut pas être lue directement dans ORBIT, proposer une ouverture externe simple et compréhensible.
+
+L'interface immersive d'ORBIT doit s'adapter au lecteur utilisé, dans les limites techniques de celui-ci.
+
+Il faut notamment distinguer les vidéos dont l'affichage est contrôlé par ORBIT des lecteurs tiers intégrés dans une iframe ou une application externe.
+
+ORBIT ne doit pas prétendre pouvoir masquer ou contrôler les commandes internes d'un lecteur tiers lorsque celui-ci ne l'autorise pas.
+
+Pas de stockage de fichiers vidéo
+
+Les fonctions de publication doivent partager des liens vers les plateformes externes.
+
+Si l'utilisateur souhaite publier une vidéo personnelle, ORBIT peut lui proposer de l'envoyer vers une plateforme externe compatible, puis de partager le lien obtenu.
+
+Ne pas transférer automatiquement ses fichiers vidéo vers un serveur ORBIT.
+
+Les miniatures et autres éléments graphiques doivent être obtenus auprès de sources autorisées. Éviter de les copier et de les stocker durablement sur les serveurs d'ORBIT.
+
+Si une miniature doit être conservée localement pour améliorer les performances, privilégier un cache temporaire sur l'appareil.
+
+2. ARCHITECTURE LOCAL-FIRST : L'APPAREIL EST LE CENTRE DE L'EXPÉRIENCE
+
+Le téléphone, la tablette ou l'ordinateur de l'utilisateur doit devenir le principal espace de stockage de ses données personnelles ORBIT.
+
+L'application doit fonctionner selon une architecture hybride dans laquelle :
+
+Les données personnelles non partagées restent locales.
+
+Les préférences d'interface sont conservées localement.
+
+L'historique de navigation est conservé localement.
+
+Les collections privées sont conservées localement.
+
+Les notes personnelles sont conservées localement.
+
+Les filtres et les réglages sont conservés localement.
+
+Les calculs qui ne nécessitent pas de données distantes sont exécutés localement.
+
+Le serveur ne reçoit que les données indispensables aux fonctions sociales ou de synchronisation demandées.
+
+L'objectif est de limiter les transferts réseau, les coûts d'infrastructure et l'exposition des données personnelles.
+
+Stockage local
+
+Examiner les technologies adaptées à l'architecture existante.
+
+Pour une application web ou une PWA, privilégier selon les besoins :
+
+IndexedDB pour les données structurées et les historiques.
+
+Cache Storage pour les ressources de l'application.
+
+Le service worker pour les ressources statiques et le fonctionnement hors ligne.
+
+localStorage uniquement pour de petites préférences non sensibles.
+
+Les mécanismes de stockage sécurisés de la plateforme lorsqu'ils sont réellement disponibles.
+
+Ne pas utiliser localStorage comme base de données principale pour de gros volumes.
+
+Ne pas stocker de secrets d'authentification ou de clés privées dans un espace accessible directement au JavaScript de la page.
+
+Prévoir une gestion des versions du modèle de données, des migrations et des erreurs de stockage.
+
+Fonctionnement hors ligne
+
+ORBIT doit pouvoir ouvrir son interface et consulter les données déjà présentes sur l'appareil sans connexion Internet, dans la mesure du possible.
+
+Hors ligne, l'utilisateur doit pouvoir :
+
+Consulter son profil local.
+
+Parcourir son historique enregistré.
+
+Consulter ses collections personnelles.
+
+Modifier ses préférences.
+
+Modifier les paramètres d'affichage.
+
+Consulter les métadonnées déjà mises en cache.
+
+Les vidéos externes ne seront naturellement pas toutes disponibles hors ligne.
+
+Les opérations sociales nécessitant un serveur doivent être indiquées comme en attente lorsque la connexion est indisponible.
+
+Ne jamais afficher une action comme synchronisée si elle ne l'est pas réellement.
+
+3. DISTINGUER LES DONNÉES LOCALES DES DONNÉES SOCIALES
+
+ORBIT doit utiliser trois catégories de données clairement séparées.
+
+Catégorie A : données personnelles locales
+
+Ces données restent sur l'appareil tant que l'utilisateur ne demande pas leur exportation ou leur synchronisation.
+
+Exemples :
+
+Historique de visionnage local.
+
+Recherches personnelles.
+
+Notes privées.
+
+Collections privées.
+
+Préférences de navigation.
+
+Thème graphique.
+
+Personnalisation de l'interface.
+
+Préférences de recommandation.
+
+Favoris locaux.
+
+Paramètres du mode immersif.
+
+Catégorie B : données sociales partagées
+
+Ces données doivent être transmises au serveur lorsqu'elles sont nécessaires au fonctionnement des fonctions sociales.
+
+Exemples :
+
+Profil public.
+
+Publications partagées.
+
+Commentaires publiés.
+
+Évaluations publiques.
+
+Relations d'abonnement.
+
+Collections collaboratives.
+
+Invitations et interactions communautaires.
+
+Ne pas envoyer de données privées au serveur simplement parce qu'elles existent localement.
+
+Une note privée ne doit pas devenir une publication publique.
+
+Un historique personnel ne doit pas être partagé automatiquement avec les amis.
+
+Catégorie C : données temporaires et techniques
+
+Limiter ces données au strict nécessaire.
+
+Exemples :
+
+Cache temporaire de métadonnées.
+
+Informations de diagnostic indispensables.
+
+Données nécessaires à une opération en cours.
+
+Éléments temporaires utilisés pour la synchronisation.
+
+Définir une durée de conservation adaptée et supprimer automatiquement les données devenues inutiles.
+
+Ne pas créer de système de suivi permanent des utilisateurs.
+
+4. UNE EXPORTATION COMPLÈTE DES DONNÉES EN UN CLIC
+
+C'est une fonctionnalité fondamentale d'ORBIT.
+
+Chaque utilisateur doit pouvoir récupérer facilement l'intégralité des données personnelles qu'ORBIT conserve à son sujet.
+
+Créer une rubrique accessible depuis les paramètres du compte :
+
+« Mes données — Exporter et transférer ».
+
+L'exportation doit être disponible sans abonnement payant.
+
+Elle ne doit pas dépendre d'un service premium.
+
+Exportation complète
+
+Créer un bouton principal :
+
+« Exporter toutes mes données ».
+
+L'utilisateur peut choisir une exportation complète ou sélectionner certaines catégories.
+
+L'exportation complète doit inclure toutes les données personnelles qu'ORBIT conserve et qui peuvent légitimement lui être restituées, notamment :
+
+Les informations de profil.
+
+Les préférences du compte.
+
+Les réglages d'interface.
+
+Les préférences de thèmes et de couleurs.
+
+L'historique de navigation conservé.
+
+L'historique de visionnage conservé.
+
+Les favoris.
+
+Les collections.
+
+Les notes privées.
+
+Les recherches enregistrées.
+
+L'ADN culturel et ses données sous-jacentes conservées.
+
+Les préférences de recommandation.
+
+Les données du Jardin Secret.
+
+Les liens externes enregistrés.
+
+Les publications personnelles.
+
+Les commentaires et évaluations personnels conservés.
+
+Les informations relatives aux connexions et aux imports, lorsque leur exportation est appropriée.
+
+Les paramètres et règles de personnalisation.
+
+Les informations nécessaires pour comprendre la structure des données exportées.
+
+Ne pas prétendre exporter des données que l'application ne conserve pas ou auxquelles elle n'a pas accès.
+
+Pour les informations provenant d'une plateforme externe, exporter les références et les métadonnées autorisées plutôt que prétendre posséder l'intégralité des données de cette plateforme.
+
+Ne jamais exporter les mots de passe, les jetons d'accès actifs, les secrets d'API ou les clés privées.
+
+Formats d'exportation
+
+Proposer au minimum :
+
+JSON pour une exportation structurée et complète.
+
+CSV pour les listes tabulaires lorsque cela est pertinent.
+
+ZIP pour regrouper les fichiers d'exportation.
+
+Inclure un manifeste décrivant les fichiers, leur format, la date d'exportation et la version du schéma.
+
+Les données doivent être documentées pour pouvoir être réutilisées par un autre logiciel.
+
+Lorsque cela est possible, permettre également une exportation simplifiée sous forme de fichier JSON unique.
+
+Exportation locale prioritaire
+
+Les données présentes sur l'appareil doivent pouvoir être exportées directement depuis celui-ci.
+
+Ne pas envoyer inutilement l'intégralité de ces données au serveur pour générer un fichier que le navigateur pourrait produire localement.
+
+Pour les données sociales stockées sur le serveur, récupérer uniquement les données nécessaires à l'exportation demandée, après authentification.
+
+Assembler les deux ensembles localement lorsque cela est possible.
+
+Importation et restauration
+
+Créer également un bouton :
+
+« Importer mes données ».
+
+L'utilisateur doit pouvoir restaurer une archive ORBIT valide sur un autre appareil ou après réinstallation.
+
+L'importation doit :
+
+Vérifier le format.
+
+Vérifier la version du schéma.
+
+Détecter les doublons.
+
+Prévenir les conflits.
+
+Permettre une prévisualisation avant modification.
+
+Expliquer les données qui seront ajoutées ou remplacées.
+
+Ne jamais écraser silencieusement des données existantes.
+
+L'importation ne doit pas permettre de contourner les permissions d'un autre utilisateur ou de recréer des droits d'accès inexistants.
+
+5. PORTABILITÉ ET CHANGEMENT D'APPAREIL
+
+ORBIT ne doit pas enfermer l'utilisateur dans un appareil ou dans son infrastructure.
+
+Prévoir trois mécanismes complémentaires.
+
+A. Transfert manuel
+
+L'utilisateur exporte ses données depuis son ancien appareil et les importe sur le nouveau.
+
+Le système doit rester fonctionnel même si aucun service de synchronisation cloud n'est activé.
+
+B. Synchronisation facultative
+
+Proposer une synchronisation pour les utilisateurs qui souhaitent retrouver leurs données sur plusieurs appareils.
+
+Cette synchronisation doit être explicitement activée.
+
+Elle ne doit jamais être imposée comme condition pour utiliser les fonctions locales.
+
+Synchroniser uniquement les catégories autorisées par l'utilisateur.
+
+C. Synchronisation sélective
+
+Permettre de choisir les catégories synchronisées :
+
+Profil.
+
+Collections.
+
+Préférences.
+
+Historique.
+
+Notes personnelles.
+
+Paramètres d'interface.
+
+Les données privées qui ne nécessitent aucune synchronisation doivent pouvoir rester exclusivement locales.
+
+Expliquer clairement ce qui est conservé sur l'appareil et ce qui est transmis au serveur.
+
+6. PERSONNALISATION LIBRE DE L'INTERFACE SANS COÛT SERVEUR SUPPLÉMENTAIRE
+
+ORBIT doit permettre à chaque utilisateur de personnaliser son interface sans qu'une nouvelle personnalisation entraîne systématiquement un traitement distant ou une écriture en base de données.
+
+Les préférences doivent être appliquées localement.
+
+Personnalisation
+
+Permettre de modifier :
+
+Les thèmes.
+
+Les couleurs.
+
+La taille des éléments.
+
+La densité de l'interface.
+
+La transparence des commandes.
+
+Les informations visibles dans le Flux.
+
+Les informations masquées.
+
+Les comportements du mode immersif.
+
+Les préférences de navigation.
+
+Les paramètres du mini-lecteur lorsque cela est possible.
+
+Conserver les thèmes existants :
+
+Onyx.
+
+Alabaster.
+
+Verre Polaire.
+
+Permettre d'ajouter de nouvelles variantes sans multiplier les composants et les feuilles de style.
+
+Système de thèmes
+
+Utiliser une architecture centralisée de variables de thème.
+
+Les couleurs, espacements, tailles, bordures et transparences doivent être configurables sans dupliquer l'ensemble des composants.
+
+Les thèmes doivent être enregistrés localement.
+
+Leur application ne doit pas nécessiter de requête réseau.
+
+Profils d'interface
+
+Créer la possibilité d'enregistrer plusieurs profils personnels.
+
+Exemples :
+
+Interface minimaliste.
+
+Mode professionnel.
+
+Mode découverte.
+
+Mode lecture.
+
+Mode immersion totale.
+
+Interface personnalisée.
+
+L'utilisateur peut passer d'un profil à un autre instantanément.
+
+Le changement doit être local et ne doit pas recharger toute l'application.
+
+Il doit également pouvoir exporter ses profils d'interface et les importer sur un autre appareil.
+
+Prévoir une fonction de réinitialisation des paramètres.
+
+Extensions futures
+
+Concevoir le système de manière à pouvoir ajouter des thèmes ou des profils supplémentaires sans réécrire l'application.
+
+Toutefois, ne pas autoriser l'exécution de code arbitraire importé dans un thème.
+
+Les personnalisations doivent être représentées par des données validées et des paramètres autorisés.
+
+7. RÉDUIRE AU MINIMUM LES COÛTS D'HÉBERGEMENT
+
+L'architecture doit être pensée pour minimiser les dépenses récurrentes.
+
+Chaque requête, chaque donnée conservée et chaque calcul serveur doit avoir une justification.
+
+Règle 1 : ne rien calculer sur le serveur qui peut être calculé localement sans risque
+
+Exemples :
+
+Application des thèmes.
+
+Gestion des préférences d'interface.
+
+Filtrage de listes déjà présentes sur l'appareil.
+
+Recherche locale.
+
+Classement de collections privées.
+
+Calcul de statistiques personnelles locales.
+
+Historique de navigation local.
+
+Préparation des fichiers d'exportation.
+
+Règle 2 : éviter les appels réseau inutiles
+
+Ne pas recharger une page entière lors d'un changement de page.
+
+Ne pas interroger le serveur à chaque interaction graphique.
+
+Regrouper les modifications de préférences lorsqu'une synchronisation est activée.
+
+Utiliser un cache local pour les métadonnées compatibles avec les droits et les durées de conservation applicables.
+
+Éviter les appels répétés pour les mêmes informations.
+
+Prévoir une pagination pour les grandes listes.
+
+Charger les données progressivement.
+
+Ne récupérer que les champs nécessaires.
+
+Utiliser une compression adaptée pour les échanges de données structurées.
+
+Ne pas synchroniser continuellement l'historique de consultation sans demande explicite.
+
+Règle 3 : limiter le stockage serveur
+
+Le serveur doit principalement gérer les informations nécessaires aux fonctions sociales partagées.
+
+Éviter de stocker :
+
+Les préférences d'affichage déjà conservées localement.
+
+Les historiques purement privés.
+
+Les copies des vidéos.
+
+Les miniatures en double.
+
+Les caches temporaires qui peuvent être recréés.
+
+Les données personnelles non nécessaires.
+
+Règle 4 : éviter les dépendances payantes inutiles
+
+Ne pas imposer un appel à un grand modèle d'IA pour chaque action.
+
+Les tâches simples doivent être effectuées localement lorsque cela est possible.
+
+Pour le classement des publications, commencer par utiliser :
+
+Les métadonnées disponibles.
+
+Des règles déterministes.
+
+Les catégories existantes.
+
+Des correspondances locales.
+
+Des modèles locaux lorsqu'ils sont réellement disponibles et adaptés.
+
+Réserver les appels à une IA distante aux opérations qui nécessitent réellement ses capacités.
+
+Lorsque ces appels sont nécessaires, regrouper les traitements lorsque cela est pertinent et éviter les analyses répétitives.
+
+Ne pas transmettre de données privées à un fournisseur d'IA sans nécessité, information appropriée et base juridique valable.
+
+Règle 5 : mesurer les coûts
+
+Créer des indicateurs techniques permettant d'estimer :
+
+Le nombre de requêtes serveur.
+
+Le volume de données échangées.
+
+Le volume de stockage.
+
+Le nombre de calculs distants.
+
+Le taux d'utilisation du cache.
+
+Les échecs de synchronisation.
+
+Ces indicateurs doivent permettre de repérer les fonctionnalités qui augmentent inutilement les coûts.
+
+Ne pas mettre en place un suivi individuel intrusif uniquement pour mesurer les performances.
+
+Privilégier les métriques techniques agrégées et la collecte minimale.
+
+8. MÉTADONNÉES ET CACHE LOCAL
+
+ORBIT ne doit conserver que les informations nécessaires à ses fonctions.
+
+Lorsqu'un utilisateur partage un lien externe, enregistrer localement ou sur le serveur social, selon le besoin, les références pertinentes :
+
+URL.
+
+Plateforme.
+
+Identifiant du contenu.
+
+Titre lorsque son accès est autorisé.
+
+Créateur lorsque cette information est disponible.
+
+Catégorie.
+
+Date de publication lorsqu'elle est connue.
+
+Informations de partage propres à ORBIT.
+
+Ne pas supposer que toutes les plateformes autorisent la récupération ou la conservation des mêmes métadonnées.
+
+Respecter les conditions d'utilisation et les mécanismes officiels d'accès.
+
+Les métadonnées doivent pouvoir être mises en cache localement.
+
+Le cache doit :
+
+Éviter les téléchargements répétitifs.
+
+Utiliser une durée de conservation adaptée.
+
+Permettre la suppression des données.
+
+Être limité en taille.
+
+Être vidé lorsque l'espace disponible devient insuffisant.
+
+Ne pas empêcher le fonctionnement de l'application en cas d'échec.
+
+Ne pas stocker les contenus vidéo eux-mêmes.
+
+9. RECOMMANDATIONS ET ADN CULTUREL : CALCULS LOCAUX EN PRIORITÉ
+
+ORBIT possède un ADN culturel, un système de recommandations et des Jumeaux de Goûts.
+
+Ces fonctionnalités doivent être conçues pour limiter les transmissions de données personnelles.
+
+Calculs locaux
+
+Calculer localement, lorsque cela est possible :
+
+Les préférences culturelles de l'utilisateur.
+
+Les scores associés à ses propres collections.
+
+Les catégories favorites.
+
+Les statistiques personnelles.
+
+Les préférences de diversité.
+
+Les paramètres du curseur entre Ma Bulle et Exploration Hors-Piste.
+
+L'utilisateur doit pouvoir consulter et modifier ces résultats.
+
+Recommandations sociales
+
+Certaines fonctions nécessitent des informations provenant d'autres membres.
+
+Pour celles-ci :
+
+Ne récupérer que les données nécessaires.
+
+Utiliser les informations publiques ou explicitement partagées.
+
+Limiter les échanges réseau.
+
+Éviter de transmettre l'historique complet d'un utilisateur.
+
+Ne pas révéler les domaines privés du Jardin Secret.
+
+Si un calcul exige des données distantes, déterminer si le serveur peut fournir des résultats agrégés plutôt que des historiques individuels détaillés.
+
+Ne pas prétendre qu'un algorithme est entièrement local s'il dépend réellement de données serveur.
+
+10. RECHERCHE UNIVERSELLE ET MÉMOIRE CULTURELLE
+
+Les fonctions de mémoire culturelle, de recherche universelle et de collections doivent être conçues pour fonctionner localement en priorité.
+
+L'utilisateur doit pouvoir retrouver :
+
+Les contenus enregistrés.
+
+Ses notes.
+
+Ses collections.
+
+Les vidéos partagées par ses amis et déjà synchronisées.
+
+Son historique conservé.
+
+Ses publications personnelles.
+
+La recherche locale ne doit pas nécessiter un appel serveur à chaque requête.
+
+Les requêtes portant sur des données absentes de l'appareil peuvent utiliser un service distant, à condition de l'indiquer et de limiter les données transmises.
+
+Prévoir une recherche locale par titre, catégorie, créateur, date et notes personnelles.
+
+Une recherche en langage naturel peut être ajoutée si elle peut fonctionner avec les données disponibles.
+
+Ne pas envoyer systématiquement toute la bibliothèque personnelle à une IA distante pour effectuer une simple recherche.
+
+11. COMPTE, IDENTITÉ ET SYNCHRONISATION
+
+ORBIT doit distinguer clairement :
+
+L'identité du compte.
+
+Les données personnelles locales.
+
+Les données sociales partagées.
+
+Les préférences de synchronisation.
+
+Le compte ne doit pas devenir un prétexte pour centraliser inutilement toutes les informations.
+
+L'utilisateur doit pouvoir consulter les appareils connectés et révoquer les sessions selon les mécanismes d'authentification disponibles.
+
+Les données sociales partagées doivent être gérées conformément aux permissions du système.
+
+Les modifications locales peuvent être conservées en attente de synchronisation si nécessaire.
+
+Prévoir une gestion fiable des conflits lorsque deux appareils modifient simultanément une même donnée.
+
+Ne pas écraser silencieusement les données de l'utilisateur.
+
+Pour les données purement locales, conserver une copie locale même lorsque la synchronisation facultative est activée, lorsque cela est compatible avec le fonctionnement de l'application.
+
+12. SÉCURITÉ ET PROTECTION DES DONNÉES
+
+Le principe local-first ne signifie pas que les données locales sont automatiquement sécurisées.
+
+Mettre en place :
+
+Une validation stricte des données importées.
+
+Une protection contre les archives malveillantes.
+
+Une gestion sécurisée des sessions.
+
+Une séparation des données publiques et privées.
+
+Des contrôles d'accès côté serveur.
+
+Des règles de suppression fiables.
+
+Une protection contre les modifications non autorisées.
+
+Des mécanismes de migration de données contrôlés.
+
+Ne jamais faire confiance au navigateur pour appliquer seul les autorisations d'accès aux données sociales.
+
+Ne pas inclure de secrets d'API dans le code envoyé au navigateur.
+
+Pour les données très sensibles, ne pas supposer qu'un stockage local ordinaire offre un chiffrement suffisant.
+
+Si un chiffrement local est proposé, concevoir correctement la gestion des clés, les sauvegardes et la récupération. Ne pas inventer un mécanisme cryptographique propriétaire.
+
+La collecte des données doit respecter les obligations applicables, notamment le RGPD.
+
+Les fonctions d'exportation, de rectification et de suppression doivent être conçues selon les obligations légales applicables.
+
+13. INSTALLATION PWA ET UTILISATION SUR PLUSIEURS APPAREILS
+
+ORBIT doit rester utilisable comme application web et PWA sur smartphone, tablette et ordinateur.
+
+Les ressources statiques nécessaires à l'interface peuvent être mises en cache localement.
+
+Prévoir :
+
+Un chargement rapide.
+
+Un fonctionnement hors ligne partiel.
+
+Des mises à jour contrôlées.
+
+Une gestion des versions de données.
+
+Une migration des données locales.
+
+Une récupération après une erreur de stockage.
+
+Ne pas supposer qu'une PWA dispose d'un espace de stockage illimité.
+
+Prévoir des limites raisonnables, une gestion des quotas et un avertissement lorsque l'utilisateur approche de la capacité disponible.
+
+Ne pas supprimer automatiquement les données personnelles importantes pour libérer de l'espace.
+
+Permettre à l'utilisateur de gérer les caches et les données conservées.
+
+La réception de contenus via le menu natif « Partager vers... » doit être conservée lorsque la plateforme et le navigateur le permettent.
+
+14. INTERFACE DE CONTRÔLE DES DONNÉES
+
+Créer un espace « Mes données et ma confidentialité » accessible depuis les paramètres.
+
+Il doit présenter clairement :
+
+Données conservées sur cet appareil.
+
+Données synchronisées avec ORBIT.
+
+Sources externes connectées.
+
+Dernière synchronisation.
+
+Volume de stockage local utilisé.
+
+Taille approximative de l'historique.
+
+État des exports.
+
+Préférences de synchronisation.
+
+Options de suppression.
+
+Prévoir les actions suivantes :
+
+Exporter toutes mes données.
+
+Exporter une catégorie.
+
+Importer une archive.
+
+Synchroniser maintenant.
+
+Suspendre la synchronisation.
+
+Supprimer les données locales sélectionnées.
+
+Supprimer les données du compte conformément aux règles applicables.
+
+Réinitialiser mes préférences d'interface.
+
+Avant une suppression définitive, afficher une confirmation claire.
+
+Distinguer la suppression locale de la suppression des données conservées sur les serveurs.
+
+Ne jamais laisser croire que supprimer le cache local supprime également les données du compte.
+
+15. NOUVELLES FONCTIONNALITÉS COMPATIBLES AVEC CETTE ARCHITECTURE
+
+Concevoir les nouvelles fonctions en privilégiant les calculs locaux et les données portables.
+
+Mémoire culturelle locale
+
+Permettre de retrouver les contenus consultés et enregistrés à partir de métadonnées déjà disponibles.
+
+Collections personnelles exportables
+
+Créer des collections locales que l'utilisateur peut exporter, importer et partager volontairement.
+
+Profils d'interface exportables
+
+Permettre de transférer ses thèmes, ses réglages et ses préférences sur un autre appareil.
+
+Recherche locale universelle
+
+Rechercher parmi les contenus déjà enregistrés sans envoyer chaque requête à un serveur.
+
+Recommandations privées
+
+Calculer localement les préférences personnelles lorsque les données nécessaires sont disponibles.
+
+Historique maîtrisé
+
+Permettre à l'utilisateur de choisir les données conservées, leur durée de conservation et les catégories exclues de l'historique.
+
+Mode sans synchronisation
+
+Proposer un fonctionnement dans lequel les données personnelles restent sur l'appareil, hormis les échanges indispensables aux fonctions externes effectivement utilisées.
+
+Expliquer clairement les limitations de ce mode.
+
+16. PLAN D'IMPLÉMENTATION
+
+Avant de coder, inspecter le projet existant et identifier les éléments déjà fonctionnels.
+
+Puis procéder par étapes.
+
+Étape 1 — Audit de l'architecture
+
+Identifier :
+
+Les services serveur.
+
+Les données stockées.
+
+Les requêtes réseau.
+
+Les appels aux IA.
+
+Les intégrations externes.
+
+Les préférences utilisateur.
+
+Les données qui peuvent rester locales.
+
+Les dépendances qui nécessitent réellement un backend.
+
+Produire une cartographie simple des données et de leurs flux.
+
+Étape 2 — Modèle de données local
+
+Mettre en place un stockage local adapté, versionné et documenté.
+
+Ne pas migrer ou supprimer les données existantes sans mécanisme de transition fiable.
+
+Étape 3 — Exportation et importation
+
+Créer les mécanismes d'exportation et de restauration.
+
+Vérifier qu'un utilisateur peut exporter ses données, puis les réimporter sans perte injustifiée.
+
+Étape 4 — Personnalisation locale
+
+Centraliser les paramètres d'interface, les thèmes et les profils.
+
+Vérifier que les changements ne génèrent pas de requêtes réseau inutiles.
+
+Étape 5 — Réduction des coûts
+
+Mesurer les requêtes, les volumes échangés et les calculs distants.
+
+Réduire les appels inutiles sans supprimer les fonctions sociales.
+
+Étape 6 — Synchronisation facultative
+
+Si elle est nécessaire, implémenter une synchronisation sélective avec gestion des conflits, sécurité et possibilité de désactivation.
+
+Étape 7 — Validation
+
+Tester les changements sur plusieurs appareils et navigateurs.
+
+Vérifier le comportement hors ligne, la portabilité, les erreurs de stockage et la préservation des fonctions existantes.
+
+Ne jamais déclarer une fonctionnalité opérationnelle sans l'avoir réellement vérifiée.
+
+INSTRUCTION FINALE
+
+Je veux qu'ORBIT reste une application riche, évolutive et personnalisable, mais que son fonctionnement dépende le moins possible d'une infrastructure coûteuse.
+
+Ne stocke pas les vidéos.
+
+Ne centralise pas les données personnelles par défaut.
+
+Ne transmets pas au serveur des informations qui peuvent rester sur l'appareil.
+
+Ne déclenche pas d'appels IA distants pour des opérations simples qui peuvent être réalisées localement.
+
+Ne rends pas la synchronisation obligatoire lorsque les fonctions concernées peuvent fonctionner sans elle.
+
+Permets à chaque utilisateur de récupérer ses données, de changer d'appareil et de personnaliser son expérience sans perdre son historique.
+
+Préserve les fonctions sociales qui nécessitent réellement une infrastructure partagée.
+
+La philosophie d'ORBIT doit être la suivante : les contenus restent chez leurs créateurs, les données personnelles restent chez leurs utilisateurs et les serveurs d'ORBIT ne traitent que ce qui est réellement nécessaire.
+
+Commence par analyser l'architecture actuelle, puis propose et implémente les améliorations par étapes, sans reconstruire l'application et sans supprimer les fonctions existantes.
