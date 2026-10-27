@@ -416,7 +416,11 @@ export const ReglageEtImportationView: React.FC<ReglageEtImportationViewProps> =
         methodUsed: `Synchronisation Clé API (${network.toUpperCase()})`,
         proofText: `${network.toUpperCase()} synchronisé : ${newVideos.length} vidéo(s) & ${newChannels.length} chaînes/pages ajoutées`,
         newVideos,
-        newChannels: Array.from(new Set(newChannels)),
+        newChannels: Array.from(new Set(newChannels)).map((ch) => ({
+          title: ch,
+          domain: classifyTextToDomain(ch, domains).domain,
+          videoCount: 1,
+        })),
         newTwins: [],
         affinityDeltas,
       });
@@ -798,7 +802,11 @@ export const ReglageEtImportationView: React.FC<ReglageEtImportationViewProps> =
         methodUsed: `Import Local Fichier (${file.name})`,
         proofText: summary,
         newVideos,
-        newChannels: Array.from(new Set(newChannels)),
+        newChannels: Array.from(new Set(newChannels)).map((ch) => ({
+          title: ch,
+          domain: classifyTextToDomain(ch, domains).domain,
+          videoCount: 1,
+        })),
         newTwins: [],
         affinityDeltas,
       });
@@ -894,7 +902,11 @@ export const ReglageEtImportationView: React.FC<ReglageEtImportationViewProps> =
       methodUsed: `Partage Direct (${network.toUpperCase()})`,
       proofText: summary,
       newVideos,
-      newChannels,
+      newChannels: newChannels.map((ch) => ({
+        title: ch,
+        domain: classifyTextToDomain(ch, domains).domain,
+        videoCount: 1,
+      })),
       newTwins: [],
       affinityDeltas,
     });
@@ -1239,7 +1251,13 @@ export const ReglageEtImportationView: React.FC<ReglageEtImportationViewProps> =
       methodUsed: "Testeur Universel oEmbed (Page 5)",
       proofText: `Vidéo « ${probeResult.title} » intégrée sur Ma Page (Page 2) et dans le Flux`,
       newVideos: [newVid],
-      newChannels: [probeResult.authorName],
+      newChannels: [
+        {
+          title: probeResult.authorName,
+          domain: probeResult.detectedDomain,
+          videoCount: 1,
+        },
+      ],
       newTwins: [],
       affinityDeltas: { [probeResult.detectedDomain]: 5 },
     });

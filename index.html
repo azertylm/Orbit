@@ -24,19 +24,40 @@
     <!-- Google Identity Services OAuth2 Officiel -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker
-            .register('/sw.js')
-            .then((reg) => console.log('Service Worker enregistré avec succès :', reg.scope))
-            .catch((err) => console.warn('Échec Service Worker :', err));
-        });
-      }
+      (function () {
+        try {
+          if ('caches' in window) {
+            caches.keys().then(function (keys) {
+              var hadOld = false;
+              Promise.all(
+                keys.map(function (key) {
+                  hadOld = true;
+                  return caches.delete(key);
+                })
+              ).then(function () {
+                if (hadOld && !sessionStorage.getItem('orbit_cache_cleared_v6')) {
+                  sessionStorage.setItem('orbit_cache_cleared_v6', '1');
+                  window.location.reload();
+                }
+              });
+            });
+          }
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (regs) {
+              regs.forEach(function (reg) {
+                reg.update();
+              });
+            });
+            window.addEventListener('load', function () {
+              navigator.serviceWorker.register('/sw.js').catch(function () {});
+            });
+          }
+        } catch (e) {}
+      })();
     </script>
   </head>
-  <body>
+  <body style="background-color: #090A0F; color: #FFFFFF; margin: 0;">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

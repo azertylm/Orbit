@@ -73,6 +73,27 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+  // Prevent stale Service Worker or HTML caching in preview iframe
+  app.use((req, res, next) => {
+    if (
+      req.path === "/" ||
+      req.path === "/index.html" ||
+      req.path === "/sw.js" ||
+      req.path.startsWith("/src/")
+    ) {
+      res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+      );
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    }
+    if (req.path === "/sw.js") {
+      res.setHeader("Clear-Site-Data", '"cache"');
+    }
+    next();
+  });
+
   // 0. 24/7 Health Check & Availability Probe
   app.get("/api/orbit/health", (_req, res) => {
     res.json({
@@ -366,18 +387,114 @@ async function startServer() {
 
     const lower = rawUrl.toLowerCase();
     if (lower.includes("facebook.com") || lower.includes("fb.watch") || lower.includes("fb.com")) {
-      const isReel = lower.includes("/reel/") || lower.includes("/share/r/");
-      const pathParts = rawUrl.replace(/^https?:\/\/(www\.|m\.|web\.)?(facebook\.com|fb\.watch|fb\.com)\/?/i, "").split(/[/?#]/).filter(Boolean);
-      const authorCandidate = pathParts[0] && !["watch", "reel", "share", "videos", "plugins"].includes(pathParts[0].toLowerCase())
-        ? pathParts[0]
-        : "Facebook Watch";
+      // Extract URL if user pasted an <iframe> embed code or text + URL
+      let targetFbUrl = rawUrl;
+      const hrefParamMatch = rawUrl.match(/[?&]href=([^&"'\s>]+)/i);
+      if (hrefParamMatch && hrefParamMatch[1]) {
+        try {
+          targetFbUrl = decodeURIComponent(hrefParamMatch[1]);
+        } catch {
+          targetFbUrl = hrefParamMatch[1];
+        }
+      } else {
+        const urlInTextMatch = rawUrl.match(/https?:\/\/[^\s"'<>]+/i);
+        if (urlInTextMatch && urlInTextMatch[0]) {
+          targetFbUrl = urlInTextMatch[0];
+        }
+      }
+
+      if (!/^https?:\/\//i.test(targetFbUrl)) {
+        targetFbUrl = `https://${targetFbUrl}`;
+      }
+      targetFbUrl = targetFbUrl.replace(/^https?:\/\/(m|web|touch)\.facebook\.com/i, "https://www.facebook.com");
+
+      let resolvedUrl = targetFbUrl;
+      let scrapedTitle = "";
+      let scrapedThumb = "";
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const fbRes = await fetch(targetFbUrl, {
+          redirect: "follow",
+          signal: controller.signal,
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml",
+          },
+        });
+        clearTimeout(timeoutId);
+        if (fbRes.url && !fbRes.url.includes("/login")) {
+          resolvedUrl = fbRes.url.replace(
+            /^https?:\/\/(m|web|touch)\.facebook\.com/i,
+            "https://www.facebook.com"
+          );
+        }
+        const htmlSnippet = (await fbRes.text()).slice(0, 65000);
+        const ogTitleMatch =
+          htmlSnippet.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
+          htmlSnippet.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i) ||
+          htmlSnippet.match(/<title>([^<]+)<\/title>/i);
+        if (ogTitleMatch && ogTitleMatch[1]) {
+          const candidateTitle = ogTitleMatch[1]
+            .replace(/&amp;/g, "&")
+            .replace(/&#039;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/\s*\|\s*Facebook$/i, "")
+            .trim();
+          if (
+            candidateTitle &&
+            candidateTitle.toLowerCase() !== "facebook" &&
+            candidateTitle.toLowerCase() !== "error" &&
+            candidateTitle.toLowerCase() !== "erreur" &&
+            !candidateTitle.toLowerCase().includes("page not found") &&
+            !candidateTitle.toLowerCase().includes("introuvable") &&
+            !candidateTitle.toLowerCase().includes("log in") &&
+            !candidateTitle.toLowerCase().includes("se connecter")
+          ) {
+            scrapedTitle = candidateTitle;
+          }
+        }
+        const ogUrlMatch =
+          htmlSnippet.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i) ||
+          htmlSnippet.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i);
+        if (ogUrlMatch && ogUrlMatch[1] && ogUrlMatch[1].includes("facebook.com")) {
+          resolvedUrl = ogUrlMatch[1].replace(/&amp;/g, "&");
+        }
+        const ogImgMatch =
+          htmlSnippet.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+          htmlSnippet.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+        if (ogImgMatch && ogImgMatch[1] && !ogImgMatch[1].includes("fb_icon")) {
+          scrapedThumb = ogImgMatch[1].replace(/&amp;/g, "&");
+        }
+      } catch {
+        // Fallback to URL parsing if redirect/scrape times out
+      }
+
+      const resolvedLower = resolvedUrl.toLowerCase();
+      const isReel = resolvedLower.includes("/reel/") || resolvedLower.includes("/share/r/");
+      const pathParts = resolvedUrl
+        .replace(/^https?:\/\/(www\.|m\.|web\.)?(facebook\.com|fb\.watch|fb\.com)\/?/i, "")
+        .split(/[/?#]/)
+        .filter(Boolean);
+      const authorCandidate =
+        pathParts[0] &&
+        !["watch", "reel", "share", "videos", "plugins", "permalink.php", "story.php"].includes(
+          pathParts[0].toLowerCase()
+        )
+          ? pathParts[0]
+          : "Facebook Watch";
       const idCandidate = pathParts[pathParts.length - 1] || "video";
       res.json({
-        title: isReel
-          ? `Facebook Reel · ${authorCandidate} (#${idCandidate.slice(0, 10)})`
-          : `Vidéo Facebook · ${authorCandidate} (#${idCandidate.slice(0, 10)})`,
+        title:
+          scrapedTitle ||
+          (isReel
+            ? `Facebook Reel · ${authorCandidate} (#${idCandidate.slice(0, 10)})`
+            : `Vidéo Facebook · ${authorCandidate} (#${idCandidate.slice(0, 10)})`),
         author: authorCandidate,
-        thumb: "",
+        thumb: scrapedThumb,
+        resolvedUrl,
       });
       return;
     }

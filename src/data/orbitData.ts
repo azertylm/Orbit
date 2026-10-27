@@ -21,6 +21,8 @@ export interface VideoComment {
   stance?: DebateStance;
   sourceUrl?: string;
   verifiedLabel?: string;
+  timestampSeconds?: number;
+  timestampFormatted?: string;
 }
 
 export type ReactionType = "pepite" | "choc" | "genial" | "beau" | "coeur";
@@ -42,12 +44,13 @@ export const LIVE_REACTIONS: LiveReactionOption[] = [
 
 export interface VideoHighlightMoment {
   id: string;
-  reactionId: ReactionType;
+  reactionId?: ReactionType;
   emoji: string;
   label: string;
   timestampSeconds: number;
   timestampFormatted: string;
   author?: string;
+  votes?: number;
 }
 
 export interface VideoAiSummary {
@@ -169,10 +172,10 @@ export interface OrbitVideo {
     localVoters: number;
   };
   // Idée 15 : Source d'import rapide (Telegram / Discord / Presse-Papiers)
-  importedVia?: "telegram" | "discord" | "whatsapp" | "clipboard";
+  importedVia?: "telegram" | "discord" | "whatsapp" | "clipboard" | string;
   // Idée 18 : Réactions Éphémères Flottantes en Direct + Timestamps des moments forts
   highlightMoments?: VideoHighlightMoment[];
-  reactionCounts?: Record<ReactionType, number>;
+  reactionCounts?: Partial<Record<ReactionType | string, number>>;
   sourceConnectorId?: string;
 }
 
@@ -836,23 +839,53 @@ export function getVideoEmbedConfig(video: {
   const raw = (video.rawUrl || "").trim();
   const lower = raw.toLowerCase();
 
-  // 1. Facebook detection (by platform or URL)
+  // 1. Facebook detection (by platform or URL or <iframe> snippet)
   if (
     video.platform === "facebook" ||
     lower.includes("facebook.com") ||
     lower.includes("fb.watch") ||
     lower.includes("fb.com")
   ) {
+    let cleanFbUrl = raw;
+    // If user pasted a full <iframe src="https://www.facebook.com/plugins/video.php?href=..."> snippet
+    const hrefMatch = raw.match(/[?&]href=([^&"'\s>]+)/i);
+    if (hrefMatch && hrefMatch[1]) {
+      try {
+        cleanFbUrl = decodeURIComponent(hrefMatch[1]);
+      } catch {
+        cleanFbUrl = hrefMatch[1];
+      }
+    } else {
+      const httpMatch = raw.match(/https?:\/\/[^\s"'<>]+/i);
+      if (httpMatch && httpMatch[0]) {
+        cleanFbUrl = httpMatch[0];
+      }
+    }
+    if (cleanFbUrl && !/^https?:\/\//i.test(cleanFbUrl)) {
+      cleanFbUrl = `https://${cleanFbUrl}`;
+    }
+    cleanFbUrl = cleanFbUrl.replace(
+      /^https?:\/\/(m|web|touch)\.facebook\.com/i,
+      "https://www.facebook.com"
+    );
+
     const targetHref =
-      raw && (lower.includes("facebook.com") || lower.includes("fb.watch") || lower.includes("fb.com"))
-        ? raw
+      cleanFbUrl &&
+      (cleanFbUrl.toLowerCase().includes("facebook.com") ||
+        cleanFbUrl.toLowerCase().includes("fb.watch") ||
+        cleanFbUrl.toLowerCase().includes("fb.com"))
+        ? cleanFbUrl
         : "https://www.facebook.com/facebook/videos/10153231379946729/";
     return {
       embedUrl: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(
         targetHref
       )}&show_text=false&autoplay=true`,
       detectedPlatform: "facebook",
-      platformLabel: lower.includes("/reel/") || lower.includes("/share/r/") ? "FACEBOOK REEL" : "FACEBOOK WATCH",
+      platformLabel:
+        targetHref.toLowerCase().includes("/reel/") ||
+        targetHref.toLowerCase().includes("/share/r/")
+          ? "FACEBOOK REEL"
+          : "FACEBOOK WATCH",
       externalActionLabel: "Ouvrir sur Facebook ↗",
       isFacebook: true,
     };

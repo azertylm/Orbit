@@ -4,6 +4,7 @@ import {
   OrbitVideo,
   SocialConnector,
   CulturalTwin,
+  createPlatformCoverSvg,
 } from "../data/orbitData";
 import {
   ShieldCheck,
@@ -124,7 +125,7 @@ function classifyTextWithDomains(
     lower.includes("clip") ||
     lower.includes("prod")
   ) {
-    return { domain: "Musique & Son", subdomain: "Live & Concerts" };
+    return { domain: "Musique & Son", subdomain: "Sessions Live" };
   }
   if (
     lower.includes("code") ||
@@ -136,7 +137,7 @@ function classifyTextWithDomains(
     lower.includes("python") ||
     lower.includes("javascript")
   ) {
-    return { domain: "Tech & Code", subdomain: "Dév Web & Mobile" };
+    return { domain: "Dev & Open Source", subdomain: "Web & Mobile" };
   }
   if (
     lower.includes("design") ||
@@ -146,8 +147,8 @@ function classifyTextWithDomains(
     lower.includes("vfx")
   ) {
     return {
-      domain: "Arts Visuels & Image",
-      subdomain: "Photographie & Lumière",
+      domain: "Création Numérique",
+      subdomain: "Light Painting & Photo",
     };
   }
   if (
@@ -157,7 +158,7 @@ function classifyTextWithDomains(
     lower.includes("nba") ||
     lower.includes("run")
   ) {
-    return { domain: "Sport & Performance", subdomain: "Analyse Tactique" };
+    return { domain: "Sport & Aventure", subdomain: "Collectifs & Stratégie" };
   }
   if (
     lower.includes("game") ||
@@ -165,7 +166,7 @@ function classifyTextWithDomains(
     lower.includes("stream") ||
     lower.includes("play")
   ) {
-    return { domain: "Gaming & Stratégie", subdomain: "Jeux Indés" };
+    return { domain: "Jeux & Mondes Virtuels", subdomain: "Jeux Indépendants" };
   }
   if (
     lower.includes("food") ||
@@ -173,7 +174,7 @@ function classifyTextWithDomains(
     lower.includes("recette") ||
     lower.includes("chef")
   ) {
-    return { domain: "Cuisine & Terroir", subdomain: "Recettes du Quotidien" };
+    return { domain: "Artisanat & Cuisine", subdomain: "Cuisine du Monde" };
   }
   // Deterministic distribution across domains based on hash so diverse imports enrich the profile
   let hash = 0;
@@ -192,9 +193,16 @@ async function fetchNoembedMetadata(url: string): Promise<{
   thumb: string;
 }> {
   const ytId = extractYoutubeIdFromUrl(url);
-  const fallbackThumb = ytId
+  const lower = url.toLowerCase();
+  const isFb =
+    lower.includes("facebook.com") ||
+    lower.includes("fb.watch") ||
+    lower.includes("fb.com");
+  const fallbackThumb = isFb
+    ? createPlatformCoverSvg("facebook", "Vidéo Facebook partagée", url)
+    : ytId
     ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
-    : "https://i.ytimg.com/vi/5qap5aO4i9A/hqdefault.jpg";
+    : "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg";
 
   try {
     const res = await fetch(
@@ -506,12 +514,20 @@ export const ConsentAndAcquisitionModal: React.FC<
   // MODULE 3 : YOUTUBE (Méthode A: Google OAuth2 Réel + Méthode B: Direct/Takeout/Noembed)
   // =========================================================================
   const [ytMethod, setYtMethod] = useState<"methodB" | "methodA">("methodB");
-  const [googleClientId, setGoogleClientId] = useState<string>(
-    () => localStorage.getItem("orbit_google_client_id") || ""
-  );
-  const [youtubeApiKey, setYoutubeApiKey] = useState<string>(
-    () => localStorage.getItem("orbit_youtube_api_key") || ""
-  );
+  const [googleClientId, setGoogleClientId] = useState<string>(() => {
+    try {
+      return localStorage.getItem("orbit_google_client_id") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [youtubeApiKey, setYoutubeApiKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem("orbit_youtube_api_key") || "";
+    } catch {
+      return "";
+    }
+  });
   const [ytChannelIdForKey, setYtChannelIdForKey] = useState<string>("");
   const [ytBulkUrlsText, setYtBulkUrlsText] = useState<string>("");
   const [isYtImporting, setIsYtImporting] = useState<boolean>(false);
@@ -522,7 +538,11 @@ export const ConsentAndAcquisitionModal: React.FC<
   const handleLaunchRealGoogleOAuth = () => {
     const cleanClientId = googleClientId.trim();
     if (cleanClientId) {
-      localStorage.setItem("orbit_google_client_id", cleanClientId);
+      try {
+        localStorage.setItem("orbit_google_client_id", cleanClientId);
+      } catch {
+        // ignore
+      }
     }
 
     if (!cleanClientId) {
@@ -667,7 +687,7 @@ export const ConsentAndAcquisitionModal: React.FC<
             ratio: "16-9",
             domain: classified.domain,
             subdomain: classified.subdomain,
-            user: channelTitle,
+            user: profileName,
             isFriend: true,
             comment: `Importé depuis vos vidéos likées YouTube OAuth2 (${channelTitle}).`,
             score: 9.6,
@@ -730,7 +750,11 @@ export const ConsentAndAcquisitionModal: React.FC<
       );
       return;
     }
-    localStorage.setItem("orbit_youtube_api_key", cleanKey);
+    try {
+      localStorage.setItem("orbit_youtube_api_key", cleanKey);
+    } catch {
+      // ignore
+    }
     setIsYtImporting(true);
     setYtImportProgress("Requête YouTube Data API v3 en cours...");
 
@@ -778,7 +802,7 @@ export const ConsentAndAcquisitionModal: React.FC<
             ratio: "16-9",
             domain: classified.domain,
             subdomain: classified.subdomain,
-            user: author,
+            user: profileName,
             isFriend: true,
             comment: `Importé via YouTube Data API v3 (${author}).`,
             score: 9.6,
@@ -1175,7 +1199,7 @@ export const ConsentAndAcquisitionModal: React.FC<
       tiktok: "tiktok",
       instagram: "instagram",
       twitch: "twitch",
-      facebook: "youtube",
+      facebook: "facebook",
     };
     const targetPlatform = platformMap[connectorId] || "tiktok";
 
@@ -1228,8 +1252,17 @@ export const ConsentAndAcquisitionModal: React.FC<
     // 1. Process real URLs with noembed.com
     for (let i = 0; i < urlMatches.length; i++) {
       const url = urlMatches[i];
+      const lowerUrl = url.toLowerCase();
+      const isFbUrl =
+        targetPlatform === "facebook" ||
+        lowerUrl.includes("facebook.com") ||
+        lowerUrl.includes("fb.watch") ||
+        lowerUrl.includes("fb.com");
+      const effectivePlatform: OrbitVideo["platform"] = isFbUrl
+        ? "facebook"
+        : targetPlatform;
       const meta = await fetchNoembedMetadata(url);
-      const ytId = extractYoutubeIdFromUrl(url) || "5qap5aO4i9A";
+      const ytId = extractYoutubeIdFromUrl(url) || "aircAruvnKk";
       const classified = classifyTextWithDomains(
         `${meta.title} ${meta.author} ${url}`,
         domains
@@ -1237,31 +1270,44 @@ export const ConsentAndAcquisitionModal: React.FC<
       affinityDeltas[classified.domain] =
         (affinityDeltas[classified.domain] || 0) + 4;
 
+      const isVerticalUrl =
+        effectivePlatform === "tiktok" ||
+        effectivePlatform === "instagram" ||
+        lowerUrl.includes("/reel/") ||
+        lowerUrl.includes("/share/r/") ||
+        lowerUrl.includes("/shorts/");
+
+      const resolvedTitle = meta.title.trim().startsWith("Découverte Média")
+        ? isFbUrl
+          ? `Vidéo Facebook partagée · ${classified.subdomain}`
+          : `[${connectorId.toUpperCase()}] Pépite ${classified.subdomain} (${
+              handleMatches[i] || meta.author
+            })`
+        : meta.title;
+
       newVideos.push({
         id: Date.now() + i,
-        title:
-          meta.title.startsWith("Découverte Média")
-            ? `[${connectorId.toUpperCase()}] Pépite ${classified.subdomain} (${
-                handleMatches[i] || meta.author
-              })`
-            : meta.title,
-        platform: targetPlatform,
-        ratio: targetPlatform === "twitch" ? "16-9" : "9-16",
+        title: resolvedTitle,
+        platform: effectivePlatform,
+        ratio: isVerticalUrl ? "9-16" : "16-9",
         domain: classified.domain,
         subdomain: classified.subdomain,
-        user: (handleMatches[i] || meta.author).replace(/^@/, ""),
+        user: profileName,
         isFriend: true,
-        comment: `Importé via ${methodSourceLabel} (${connectorId.toUpperCase()}).`,
-        score: 9.5,
+        comment: `Importé via ${methodSourceLabel} (${effectivePlatform.toUpperCase()}) : ${url}`,
+        score: 9.6,
         votes: 75 + i * 6,
-        hoursAgo: i + 1,
+        hoursAgo: 0,
         youtubeId: ytId,
         rawUrl: url,
-        thumb: meta.thumb,
+        thumb: isFbUrl
+          ? createPlatformCoverSvg("facebook", resolvedTitle, url)
+          : meta.thumb,
         isScout: true,
         scoutRank: 1,
-        durationMinutes: targetPlatform === "twitch" ? 24 : 3,
-        sourceConnectorId: connectorId,
+        durationMinutes: isVerticalUrl ? 3 : 16,
+        sourceConnectorId: isFbUrl ? "facebook" : connectorId,
+        importedVia: "clipboard",
         commentsList: [],
       });
     }
@@ -1286,37 +1332,48 @@ export const ConsentAndAcquisitionModal: React.FC<
         videoCount: 1,
       });
 
-      // If no explicit video URL was pasted, create a curated discovery card for the top imported signals so Page 1, 3, 4 immediately reflect the user's real imported creators/topics
+      // If no explicit video URL was pasted, create a curated discovery card for the top imported signals so Page 1, 2, 3, 4 immediately reflect the user's real imported creators/topics
       if (urlMatches.length === 0 && idx < 4) {
         const sampleYtIds = [
-          "5qap5aO4i9A",
-          "jfKfPfyJRdk",
           "aircAruvnKk",
-          "3JZ_D3ELwOQ",
+          "jfKfPfyJRdk",
+          "EmKQsSDlaa4",
+          "wjZofJX0v4M",
         ];
         const chosenYtId = sampleYtIds[idx % sampleYtIds.length];
+        const cardTitle = `Sélection ${connectorId.toUpperCase()} : ${sig} (${
+          classified.subdomain
+        })`;
         newVideos.push({
           id: Date.now() + 500 + idx,
-          title: `Sélection ${connectorId.toUpperCase()} : ${sig} (${
-            classified.subdomain
-          })`,
+          title: cardTitle,
           platform: targetPlatform,
-          ratio: targetPlatform === "twitch" ? "16-9" : "9-16",
+          ratio:
+            targetPlatform === "twitch" || targetPlatform === "facebook"
+              ? "16-9"
+              : "9-16",
           domain: classified.domain,
           subdomain: classified.subdomain,
-          user: sig.replace(/^[@#]/, "").slice(0, 24) || profileName,
+          user: profileName,
           isFriend: true,
           comment: `Généré depuis votre import consenti ${connectorId.toUpperCase()} : « ${sig} ».`,
           score: 9.6,
           votes: 90 + idx * 10,
-          hoursAgo: idx + 1,
+          hoursAgo: 0,
           youtubeId: chosenYtId,
-          rawUrl: `https://www.${connectorId}.com`,
-          thumb: `https://i.ytimg.com/vi/${chosenYtId}/hqdefault.jpg`,
+          rawUrl:
+            targetPlatform === "facebook"
+              ? "https://www.facebook.com/facebook/videos/10153231379946729/"
+              : `https://www.youtube.com/watch?v=${chosenYtId}`,
+          thumb:
+            targetPlatform === "facebook"
+              ? createPlatformCoverSvg("facebook", cardTitle, sig)
+              : `https://i.ytimg.com/vi/${chosenYtId}/hqdefault.jpg`,
           isScout: true,
           scoutRank: 1,
           durationMinutes: 4,
           sourceConnectorId: connectorId,
+          importedVia: "clipboard",
           commentsList: [],
         });
       }

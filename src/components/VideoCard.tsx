@@ -131,7 +131,16 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   const [imgError, setImgError] = useState(false);
 
   // Inline playback & live timestamp tracker for Feature 18 (Floating Reactions)
-  const [inlinePlaying, setInlinePlaying] = useState(false);
+  // Auto-open inline player for user-shared Facebook videos so they appear immediately integrated on Ma Page
+  const isCustomFacebookVideo =
+    video.id >= 3000 &&
+    (video.platform === "facebook" ||
+      (video.rawUrl || "").toLowerCase().includes("facebook.com") ||
+      (video.rawUrl || "").toLowerCase().includes("fb.watch") ||
+      (video.rawUrl || "").toLowerCase().includes("fb.com"));
+  const [inlinePlaying, setInlinePlaying] = useState<boolean>(
+    isCustomFacebookVideo
+  );
   const [startAtSeconds, setStartAtSeconds] = useState<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(42);
   const [floatingParticles, setFloatingParticles] = useState<
@@ -388,7 +397,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
                 allowFullScreen
                 className="w-full h-full"
               />
-              <div className="absolute top-2.5 right-2.5 z-20 flex items-center gap-1.5">
+              <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-1.5">
                 <a
                   href={
                     video.rawUrl && video.rawUrl.startsWith("http")
@@ -397,7 +406,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
                   }
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-2.5 py-1 rounded-full bg-black/80 hover:bg-black/95 border border-white/25 text-[10px] font-bold text-cyan-300 inline-flex items-center gap-1 backdrop-blur-md transition-all"
+                  className="px-2.5 py-1 rounded-full bg-black/85 hover:bg-black/95 border border-white/25 text-[10px] font-bold text-cyan-300 inline-flex items-center gap-1 backdrop-blur-md transition-all"
                   title="Ouvrir directement sur la plateforme d'origine"
                 >
                   <ExternalLink className="w-3 h-3" />
@@ -406,10 +415,10 @@ export const VideoCard: React.FC<VideoCardProps> = ({
                 <button
                   type="button"
                   onClick={() => setInlinePlaying(false)}
-                  className="px-2 py-1 rounded-full bg-black/80 hover:bg-black/95 border border-white/25 text-[10px] font-bold text-white/90 cursor-pointer backdrop-blur-md"
-                  title="Fermer le lecteur intégré"
+                  className="px-2 py-1 rounded-full bg-black/85 hover:bg-black/95 border border-white/25 text-[10px] font-bold text-white/90 cursor-pointer backdrop-blur-md"
+                  title="Revenir à l'aperçu vignette"
                 >
-                  ✕
+                  Vignette
                 </button>
               </div>
             </div>

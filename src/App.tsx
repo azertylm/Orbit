@@ -292,8 +292,17 @@ export default function App() {
     const defaultIdSet = new Set(DEFAULT_VIDEOS.map((dv) => dv.id));
     // Conserver uniquement les vraies vidéos ajoutées par l'utilisateur (id >= 3000) et réparer tout ID YouTube ou lien Facebook
     const ownerProfileName = loaded.profile?.name || "Valentin R.";
-    const customUserVideos: OrbitVideo[] = (loaded.videos || [])
-      .filter((v) => v && typeof v.id === "number" && !defaultIdSet.has(v.id) && v.id >= 3000)
+    const customUserVideos: OrbitVideo[] = (
+      Array.isArray(loaded.videos) ? loaded.videos : []
+    )
+      .filter(
+        (v) =>
+          v &&
+          typeof v === "object" &&
+          typeof v.id === "number" &&
+          !defaultIdSet.has(v.id) &&
+          v.id >= 3000
+      )
       .map((v) => {
         const healedYtId =
           !v.youtubeId || brokenYtIds.has(v.youtubeId)
@@ -315,13 +324,22 @@ export default function App() {
           rawLower.includes("/reel/") || rawLower.includes("/share/r/")
             ? "9-16"
             : v.ratio || "16-9";
+        const safeTitle =
+          typeof v.title === "string" && v.title.trim()
+            ? v.title
+            : `Vidéo ${healedPlatform.toUpperCase()} partagée`;
         const healedThumb = isFacebookVid
-          ? createPlatformCoverSvg("facebook", v.title, v.rawUrl)
+          ? createPlatformCoverSvg("facebook", safeTitle, v.rawUrl)
           : v.thumb && v.thumb.startsWith("data:image/svg+xml")
           ? v.thumb
           : `https://i.ytimg.com/vi/${healedYtId}/hqdefault.jpg`;
         return {
           ...v,
+          title: safeTitle,
+          subdomain:
+            typeof v.subdomain === "string" && v.subdomain
+              ? v.subdomain
+              : "Découverte",
           user: ownerProfileName,
           isFriend: true,
           platform: healedPlatform,
@@ -329,6 +347,17 @@ export default function App() {
           youtubeId: healedYtId,
           thumb: healedThumb,
           domain: healedDomain,
+          score:
+            typeof v.score === "number" && !Number.isNaN(v.score)
+              ? v.score
+              : 9.6,
+          votes:
+            typeof v.votes === "number" && !Number.isNaN(v.votes) ? v.votes : 1,
+          hoursAgo:
+            typeof v.hoursAgo === "number" && !Number.isNaN(v.hoursAgo)
+              ? v.hoursAgo
+              : 1,
+          commentsList: Array.isArray(v.commentsList) ? v.commentsList : [],
         };
       });
 
@@ -339,40 +368,97 @@ export default function App() {
 
     // Aligner les 15 domaines avec DEFAULT_DOMAINS pour éviter tout filtre vide
     const mergedDomains: OrbitDomain[] = DEFAULT_DOMAINS.map((defDom) => {
-      const savedDom = (loaded.domains || []).find(
-        (d) => d.id === defDom.id || d.name === defDom.name
-      );
+      const savedDom = (
+        Array.isArray(loaded.domains) ? loaded.domains : []
+      ).find((d) => d && (d.id === defDom.id || d.name === defDom.name));
       return savedDom
         ? {
             ...defDom,
-            affinity: savedDom.affinity ?? defDom.affinity,
-            secret: savedDom.secret ?? defDom.secret,
+            affinity:
+              typeof savedDom.affinity === "number"
+                ? savedDom.affinity
+                : defDom.affinity,
+            secret: Boolean(savedDom.secret ?? defDom.secret),
           }
         : defDom;
     });
 
     const mergedWatchedIds = Array.from(
-      new Set([...(loaded.watchedVideoIds || []), ...standaloneWatched])
+      new Set([
+        ...(Array.isArray(loaded.watchedVideoIds)
+          ? loaded.watchedVideoIds
+          : []),
+        ...standaloneWatched,
+      ])
     );
 
     // Fusionner les 5 amis par défaut (Anne-Sophie, Ronny, Nicolas, Séverine, Babass) avec les contacts déjà importés
+    const validLoadedTwins = (
+      Array.isArray(loaded.twins) ? loaded.twins : []
+    ).filter(
+      (t) =>
+        t &&
+        typeof t === "object" &&
+        typeof t.name === "string" &&
+        typeof t.domains === "string" &&
+        typeof t.lastPick === "string"
+    );
     const existingTwinNames = new Set(
-      (loaded.twins || []).map((t) => t.name.split(" ")[0].toLowerCase())
+      validLoadedTwins.map((t) => t.name.split(" ")[0].toLowerCase())
     );
     const mergedTwins = [
-      ...(loaded.twins || []),
+      ...validLoadedTwins,
       ...DEFAULT_TWINS.filter(
         (dt) => !existingTwinNames.has(dt.name.split(" ")[0].toLowerCase())
       ),
     ];
 
-    // Conserver l'amorçage Jour 1 actif (ou les réseaux connectés par l'utilisateur)
+    // Conserver l'amorçage Jour 1 actif (ou les réseaux connectés par l'utilisateur) avec liste de chaînes assainie
     const sanitizedSocials = DEFAULT_SOCIALS.map((defSoc) => {
-      const savedSoc = (loaded.socials || []).find((s) => s.id === defSoc.id);
+      const savedSoc = (
+        Array.isArray(loaded.socials) ? loaded.socials : []
+      ).find((s) => s && s.id === defSoc.id);
       if (savedSoc && savedSoc.realConsentVerified && savedSoc.active) {
+        const rawList = Array.isArray(savedSoc.importedChannelList)
+          ? savedSoc.importedChannelList
+          : defSoc.importedChannelList || [];
+        const cleanChannels = rawList.map((ch: unknown) => {
+          if (typeof ch === "string") {
+            return {
+              title: ch,
+              domain: "Sciences & Tech",
+              videoCount: 1,
+            };
+          }
+          if (ch && typeof ch === "object") {
+            const obj = ch as {
+              title?: string;
+              domain?: string;
+              videoCount?: number;
+            };
+            return {
+              title:
+                typeof obj.title === "string" && obj.title
+                  ? obj.title
+                  : "Chaîne importée",
+              domain:
+                typeof obj.domain === "string" && obj.domain
+                  ? obj.domain
+                  : "Sciences & Tech",
+              videoCount:
+                typeof obj.videoCount === "number" ? obj.videoCount : 1,
+            };
+          }
+          return {
+            title: "Chaîne importée",
+            domain: "Sciences & Tech",
+            videoCount: 1,
+          };
+        });
         return {
           ...defSoc,
           ...savedSoc,
+          importedChannelList: cleanChannels,
           active: true,
           realConsentVerified: true,
         };
@@ -381,14 +467,15 @@ export default function App() {
     });
 
     const healedPortfolio = (
-      loaded.portfolioItems && loaded.portfolioItems.length > 0
+      Array.isArray(loaded.portfolioItems) && loaded.portfolioItems.length > 0
         ? loaded.portfolioItems
         : DEFAULT_PORTFOLIO_ITEMS
     ).map((item, idx) => {
-      const defItem = DEFAULT_PORTFOLIO_ITEMS[idx] || DEFAULT_PORTFOLIO_ITEMS[0];
-      if (!item.youtubeId || brokenYtIds.has(item.youtubeId)) {
+      const defItem =
+        DEFAULT_PORTFOLIO_ITEMS[idx] || DEFAULT_PORTFOLIO_ITEMS[0];
+      if (!item || !item.youtubeId || brokenYtIds.has(item.youtubeId)) {
         return {
-          ...item,
+          ...(item || defItem),
           youtubeId: defItem.youtubeId,
           thumb: defItem.thumb,
         };
@@ -396,26 +483,66 @@ export default function App() {
       return item;
     });
 
+    const safeProfile: OrbitProfile = {
+      name: loaded.profile?.name || "Valentin R.",
+      initials: loaded.profile?.initials || "VR",
+      bio:
+        loaded.profile?.bio ||
+        "Créateur Tech, Image & Son · Explorateur des 15 Domaines",
+      scoutPoints:
+        typeof loaded.profile?.scoutPoints === "number"
+          ? loaded.profile.scoutPoints
+          : 145,
+      scoutBadges:
+        typeof loaded.profile?.scoutBadges === "number"
+          ? loaded.profile.scoutBadges
+          : 4,
+      titleRole:
+        loaded.profile?.titleRole ||
+        "Directeur Créatif · Light Painter · Architecte Écosystème Alphabette",
+      contactEmail: loaded.profile?.contactEmail || "valentin@alphabette.fr",
+      availabilityText:
+        loaded.profile?.availabilityText ||
+        "Disponible pour réalisations 4K, expositions Light Painting & architectures",
+    };
+
     return {
       ...loaded,
+      profile: safeProfile,
+      theme:
+        loaded.theme === "onyx" ||
+        loaded.theme === "alabaster" ||
+        loaded.theme === "polar"
+          ? loaded.theme
+          : "onyx",
+      accent:
+        typeof loaded.accent === "string" && loaded.accent
+          ? loaded.accent
+          : "#7c5cff",
       domains: mergedDomains,
       socials: sanitizedSocials,
       twins: mergedTwins,
       gdprConsentGiven: true,
       videos: mergedVideos,
       jukebox: DEFAULT_JUKEBOX,
+      challenges:
+        Array.isArray(loaded.challenges) && loaded.challenges.length > 0
+          ? loaded.challenges
+          : DEFAULT_CHALLENGES,
       selectedArchiveEra: loaded.selectedArchiveEra || "live",
       pantheonShowAllDomainsArchive:
         loaded.pantheonShowAllDomainsArchive ?? false,
       focusAbsolu: loaded.focusAbsolu ?? false,
       radarGeoRadius: loaded.radarGeoRadius || "50km",
       radarGeoZoneId: loaded.radarGeoZoneId || "montpellier-occitanie",
-      watchLaterIds: loaded.watchLaterIds || [1004, 1002, 1001],
+      watchLaterIds: Array.isArray(loaded.watchLaterIds)
+        ? loaded.watchLaterIds
+        : [1004, 1002, 1001],
       quickImports: DEFAULT_QUICK_IMPORTS,
       creatorPortfolioMode: loaded.creatorPortfolioMode ?? false,
       portfolioItems: healedPortfolio,
       creatorLinks:
-        loaded.creatorLinks && loaded.creatorLinks.length > 0
+        Array.isArray(loaded.creatorLinks) && loaded.creatorLinks.length > 0
           ? loaded.creatorLinks
           : DEFAULT_CREATOR_LINKS,
       watchedVideoIds: mergedWatchedIds,
@@ -1194,7 +1321,7 @@ export default function App() {
   // Publish Video
   const handlePublishVideo = async (e: React.FormEvent) => {
     e.preventDefault();
-    const rawUrl = inpUrl.trim();
+    let rawUrl = inpUrl.trim();
     let finalTitle = inpTitle.trim();
     let finalDomain = inpDomain;
     let finalSubdomain = inpSubdomain;
@@ -1202,9 +1329,65 @@ export default function App() {
 
     if (!rawUrl && !finalTitle) {
       showToast(
-        "Veuillez saisir un lien vidéo (YouTube, TikTok, Insta...) ou un titre."
+        "Veuillez saisir un lien vidéo (Facebook, YouTube, TikTok, Insta...) ou un titre."
       );
       return;
+    }
+
+    // Si l'utilisateur a collé un code <iframe src="https://www.facebook.com/plugins/video.php?href=..."> ou un texte avec URL
+    if (rawUrl) {
+      const hrefMatch = rawUrl.match(/[?&]href=([^&"'\s>]+)/i);
+      if (hrefMatch && hrefMatch[1]) {
+        try {
+          rawUrl = decodeURIComponent(hrefMatch[1]);
+        } catch {
+          rawUrl = hrefMatch[1];
+        }
+      } else {
+        const httpMatch = rawUrl.match(/https?:\/\/[^\s"'<>]+/i);
+        if (httpMatch && httpMatch[0]) {
+          rawUrl = httpMatch[0];
+        }
+      }
+      if (
+        !rawUrl.startsWith("http") &&
+        (rawUrl.toLowerCase().includes("facebook.com") ||
+          rawUrl.toLowerCase().includes("fb.watch") ||
+          rawUrl.toLowerCase().includes("youtube.com") ||
+          rawUrl.toLowerCase().includes("youtu.be") ||
+          rawUrl.toLowerCase().includes("tiktok.com") ||
+          rawUrl.toLowerCase().includes("instagram.com"))
+      ) {
+        rawUrl = `https://${rawUrl}`;
+      }
+    }
+
+    // Résoudre les liens courts Facebook (fb.watch, /share/v/, /share/r/) et métadonnées oEmbed
+    const isFbLink =
+      rawUrl.toLowerCase().includes("facebook.com") ||
+      rawUrl.toLowerCase().includes("fb.watch") ||
+      rawUrl.toLowerCase().includes("fb.com");
+
+    if (rawUrl && (!finalTitle || isFbLink)) {
+      try {
+        const oembedRes = await fetch(
+          `/api/orbit/oembed?url=${encodeURIComponent(rawUrl)}`
+        );
+        if (oembedRes.ok) {
+          const meta = await oembedRes.json();
+          if (meta.resolvedUrl && typeof meta.resolvedUrl === "string") {
+            rawUrl = meta.resolvedUrl;
+          }
+          if (!finalTitle && meta.title) {
+            finalTitle = meta.title;
+          }
+          if (meta.thumb) {
+            oembedThumb = meta.thumb;
+          }
+        }
+      } catch {
+        // Fallback local si hors-ligne
+      }
     }
 
     if (rawUrl && !finalTitle) {
@@ -1213,7 +1396,7 @@ export default function App() {
         finalTitle = enriched.title || finalTitle;
         finalDomain = enriched.domain || finalDomain;
         finalSubdomain = enriched.subdomain || finalSubdomain;
-        oembedThumb = enriched.thumb || "";
+        oembedThumb = oembedThumb || enriched.thumb || "";
       }
     }
 
@@ -1230,9 +1413,7 @@ export default function App() {
 
     const newVideo: OrbitVideo = {
       id: Date.now(),
-      title:
-        finalTitle ||
-        `Découverte ${parsed.platform.toUpperCase()} — ${finalSubdomain}`,
+      title: resolvedTitle,
       platform: parsed.platform,
       ratio: parsed.ratio,
       domain: finalDomain,
@@ -1791,11 +1972,18 @@ export default function App() {
         };
       });
 
+      const normalizedNewVideos = payload.newVideos.map((v) => ({
+        ...v,
+        user: prev.profile.name,
+        isFriend: true,
+      }));
+
       const nextState: OrbitState = {
         ...prev,
         gdprConsentGiven: true,
+        creatorPortfolioMode: false,
         socials: updatedSocials,
-        videos: [...payload.newVideos, ...prev.videos],
+        videos: [...normalizedNewVideos, ...prev.videos],
         twins: [...payload.newTwins, ...prev.twins],
         domains: updatedDomains,
       };
@@ -2465,20 +2653,25 @@ export default function App() {
       orbitState.portfolioItems || DEFAULT_PORTFOLIO_ITEMS
     ).map((item, idx): OrbitVideo => {
       const domainMap: Record<string, string> = {
-        "light-painting": "Arts, Design & Photo",
-        video: "Cinéma, Séries & Animés",
+        "light-painting": "Création Numérique",
+        video: "Cinéma & Séries",
         music: "Musique & Son",
-        "tech-art": "Tech & Code",
+        "tech-art": "Dev & Open Source",
       };
+      const extLower = (item.externalUrl || "").toLowerCase();
+      const isFbItem =
+        extLower.includes("facebook.com") ||
+        extLower.includes("fb.watch") ||
+        extLower.includes("fb.com");
       return {
         id: 80000 + idx,
         user: orbitState.profile.name,
         isFriend: true,
         isScout: true,
         scoutRank: 1,
-        platform: "youtube",
+        platform: isFbItem ? "facebook" : "youtube",
         ratio: "9-16",
-        domain: domainMap[item.category] || "Arts, Design & Photo",
+        domain: domainMap[item.category] || "Création Numérique",
         subdomain: item.mediumLabel,
         title: `[Portfolio Pro · ${item.year}] ${item.title}`,
         comment: `${item.specs} — ${item.description}`,
@@ -2486,7 +2679,7 @@ export default function App() {
         votes: 420 + idx * 35,
         hoursAgo: idx + 1,
         durationMinutes: 6,
-        youtubeId: item.youtubeId || "5qap5aO4i9A",
+        youtubeId: item.youtubeId || "aircAruvnKk",
         rawUrl: item.externalUrl || "https://alphabette.fr",
         thumb: item.thumb,
         commentsList: [
@@ -2891,10 +3084,10 @@ export default function App() {
               key={currentFocusVideo.id}
               width="100%"
               height="100%"
-              src={`https://www.youtube-nocookie.com/embed/${currentFocusVideo.youtubeId}?autoplay=1&rel=0&modestbranding=1`}
+              src={getVideoEmbedConfig(currentFocusVideo).embedUrl}
               title={currentFocusVideo.title}
               frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowFullScreen
               className="w-full h-full"
             />
@@ -4114,6 +4307,72 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Barre de Partage Direct Rapide (Page 1 & redirection instantanée vers Ma Page) */}
+              <div
+                className="p-4 rounded-2xl glass-panel space-y-2.5"
+                style={{
+                  borderColor: "rgba(24, 119, 242, 0.45)",
+                  background:
+                    "linear-gradient(135deg, rgba(24, 119, 242, 0.12), rgba(124, 92, 255, 0.08))",
+                }}
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="text-xs font-extrabold flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-500/25 text-blue-300 border border-blue-400/40">
+                      Facebook · YouTube · TikTok · Insta
+                    </span>
+                    <span>
+                      📤 Intégrer une vidéo Facebook (Watch, Reel, Share) ou YouTube directement sur Ma Page
+                    </span>
+                  </div>
+                </div>
+                <form
+                  onSubmit={handlePublishVideo}
+                  className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_auto] gap-2"
+                >
+                  <input
+                    type="text"
+                    value={inpUrl}
+                    onChange={(e) => {
+                      setInpUrl(e.target.value);
+                      handleLocalClassify(e.target.value, inpTitle);
+                    }}
+                    placeholder="Collez votre lien Facebook (facebook.com/share/v/..., fb.watch/..., Reel), YouTube ou code <iframe>..."
+                    className="px-3.5 py-2.5 rounded-xl text-xs outline-none"
+                    style={{
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text-main)",
+                    }}
+                  />
+                  <input
+                    type="text"
+                    value={inpTitle}
+                    onChange={(e) => {
+                      setInpTitle(e.target.value);
+                      handleLocalClassify(inpUrl, e.target.value);
+                    }}
+                    placeholder="Titre personnalisé (optionnel)"
+                    className="px-3.5 py-2.5 rounded-xl text-xs outline-none"
+                    style={{
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text-main)",
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 rounded-xl text-xs font-extrabold text-white cursor-pointer inline-flex items-center justify-center gap-1.5 btn-couture whitespace-nowrap"
+                    style={{
+                      background: "linear-gradient(135deg, #1877F2, var(--accent))",
+                    }}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Intégrer sur Ma Page</span>
+                  </button>
+                </form>
+              </div>
+
               {/* Video Grid */}
               {filteredFeedVideos.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -4664,13 +4923,13 @@ export default function App() {
                       className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_auto] gap-2.5"
                     >
                       <input
-                        type="url"
+                        type="text"
                         value={inpUrl}
                         onChange={(e) => {
                           setInpUrl(e.target.value);
                           handleLocalClassify(e.target.value, inpTitle);
                         }}
-                        placeholder="Collez votre lien vidéo Facebook (Watch / Reel), YouTube, TikTok ou Instagram..."
+                        placeholder="Collez votre lien vidéo Facebook (Watch / Reel / Share), YouTube, TikTok, Instagram ou code <iframe>..."
                         className="px-3.5 py-2.5 rounded-xl text-xs outline-none"
                         style={{
                           background: "var(--bg-input)",
