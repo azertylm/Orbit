@@ -47,6 +47,7 @@ import {
   RectangleHorizontal,
   Smartphone,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 
 interface FloatingParticleInstance {
@@ -99,6 +100,7 @@ interface VerticalFeedProps {
   onUiVisibleChange?: (visible: boolean) => void;
   navOverlayOpen?: boolean;
   onToggleNavOverlay?: () => void;
+  onRemoveUnavailableVideo?: (videoId: number, reason?: string) => void;
 }
 
 function formatSecondsToMmSs(totalSec: number): string {
@@ -134,6 +136,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
   onUiVisibleChange,
   navOverlayOpen = false,
   onToggleNavOverlay,
+  onRemoveUnavailableVideo,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const iframeRefs = useRef<Record<number, HTMLIFrameElement | null>>({});
@@ -773,6 +776,14 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
                     frameBorder="0"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     allowFullScreen
+                    onError={() => {
+                      if (onRemoveUnavailableVideo) {
+                        onRemoveUnavailableVideo(
+                          video.id,
+                          "Lecteur vidéo impossible à charger"
+                        );
+                      }
+                    }}
                   />
                 ) : (
                   <div className="w-full h-full relative flex items-center justify-center bg-black">
@@ -781,12 +792,33 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
                         src={resolvedThumb}
                         alt={video.title}
                         referrerPolicy="no-referrer"
-                        onError={() =>
+                        onLoad={(e) => {
+                          if (
+                            resolvedThumb.includes("i.ytimg.com") &&
+                            e.currentTarget.naturalWidth === 120 &&
+                            onRemoveUnavailableVideo
+                          ) {
+                            onRemoveUnavailableVideo(
+                              video.id,
+                              "Vidéo YouTube supprimée ou introuvable"
+                            );
+                          }
+                        }}
+                        onError={() => {
                           setImgErrors((prev) => ({
                             ...prev,
                             [slideKey]: true,
-                          }))
-                        }
+                          }));
+                          if (
+                            resolvedThumb.includes("i.ytimg.com") &&
+                            onRemoveUnavailableVideo
+                          ) {
+                            onRemoveUnavailableVideo(
+                              video.id,
+                              "Miniature vidéo inaccessible (vidéo indisponible)"
+                            );
+                          }
+                        }}
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -972,6 +1004,26 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
                         <span>Remplir</span>
                       </>
                     )}
+                  </button>
+                )}
+
+                {onRemoveUnavailableVideo && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveUnavailableVideo(
+                        video.id,
+                        "Post indisponible supprimé"
+                      );
+                    }}
+                    className={`orbit-compact-hit px-2.5 h-8 rounded-full bg-rose-950/85 hover:bg-rose-900 border border-rose-400/35 text-rose-200 text-[10px] font-medium gap-1 ${
+                      isUiVisible ? "pointer-events-auto" : "pointer-events-none"
+                    }`}
+                    title="Supprimer ce post si la vidéo est indisponible"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Supprimer</span>
                   </button>
                 )}
 

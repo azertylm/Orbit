@@ -333,61 +333,63 @@ async function startServer() {
     });
   });
 
-  // 4. Server-side oEmbed metadata proxy (avoids browser CORS issues)
-  app.get("/api/orbit/oembed", async (req, res) => {
-    const rawUrl = String(req.query.url || "").trim();
-    if (!rawUrl) {
-      res.status(400).json({ error: "Paramètre url manquant." });
-      return;
+  // Cache en mémoire des vérifications de disponibilité vidéo (TTL 15 min)
+  const playabilityCache = new Map<
+    string,
+    {
+      playable: boolean;
+      reason?: string;
+      title: string;
+      author: string;
+      thumb: string;
+      resolvedUrl: string;
+      checkedAt: number;
+    }
+  >();
+
+  async function verifyVideoPlayability(input: {
+    rawUrl?: string;
+    youtubeId?: string;
+    platform?: string;
+  }): Promise<{
+    playable: boolean;
+    reason?: string;
+    title: string;
+    author: string;
+    thumb: string;
+    resolvedUrl: string;
+  }> {
+    const rawUrl = String(input.rawUrl || "").trim();
+    const youtubeId = String(input.youtubeId || "").trim();
+    const platform = String(input.platform || "").trim().toLowerCase();
+    const cacheKey = `${platform}|${youtubeId}|${rawUrl}`;
+
+    const cached = playabilityCache.get(cacheKey);
+    if (cached && Date.now() - cached.checkedAt < 15 * 60 * 1000) {
+      return cached;
     }
 
-    if (rawUrl.includes("youtube.com") || rawUrl.includes("youtu.be")) {
-      try {
-        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(rawUrl)}&format=json`;
-        const response = await fetch(oembedUrl);
-        if (response.ok) {
-          const data = (await response.json()) as {
-            title?: string;
-            author_name?: string;
-            thumbnail_url?: string;
-          };
-          res.json({
-            title: data.title || "",
-            author: data.author_name || "",
-            thumb: data.thumbnail_url || "",
-          });
-          return;
-        }
-      } catch (err) {
-        console.warn("Erreur oEmbed YouTube :", err);
-      }
-    }
-
-    if (rawUrl.includes("tiktok.com")) {
-      try {
-        const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(rawUrl)}`;
-        const response = await fetch(oembedUrl);
-        if (response.ok) {
-          const data = (await response.json()) as {
-            title?: string;
-            author_name?: string;
-            thumbnail_url?: string;
-          };
-          res.json({
-            title: data.title || "Pépite TikTok partagée",
-            author: data.author_name || "Créateur TikTok",
-            thumb: data.thumbnail_url || "",
-          });
-          return;
-        }
-      } catch (err) {
-        console.warn("Erreur oEmbed TikTok :", err);
-      }
-    }
+    const saveCache = (resObj: {
+      playable: boolean;
+      reason?: string;
+      title: string;
+      author: string;
+      thumb: string;
+      resolvedUrl: string;
+    }) => {
+      playabilityCache.set(cacheKey, { ...resObj, checkedAt: Date.now() });
+      return resObj;
+    };
 
     const lower = rawUrl.toLowerCase();
-    if (lower.includes("facebook.com") || lower.includes("fb.watch") || lower.includes("fb.com")) {
-      // Extract URL if user pasted an <iframe> embed code or text + URL
+
+    // 1. FACEBOOK (Watch, Reel, Share, fb.watch, iframe plugins/video.php)
+    if (
+      platform === "facebook" ||
+      lower.includes("facebook.com") ||
+      lower.includes("fb.watch") ||
+      lower.includes("fb.com")
+    ) {
       let targetFbUrl = rawUrl;
       const hrefParamMatch = rawUrl.match(/[?&]href=([^&"'\s>]+)/i);
       if (hrefParamMatch && hrefParamMatch[1]) {
@@ -403,10 +405,24 @@ async function startServer() {
         }
       }
 
+      if (!targetFbUrl) {
+        return saveCache({
+          playable: false,
+          reason: "Lien Facebook vide ou invalide",
+          title: "",
+          author: "",
+          thumb: "",
+          resolvedUrl: "",
+        });
+      }
+
       if (!/^https?:\/\//i.test(targetFbUrl)) {
         targetFbUrl = `https://${targetFbUrl}`;
       }
-      targetFbUrl = targetFbUrl.replace(/^https?:\/\/(m|web|touch)\.facebook\.com/i, "https://www.facebook.com");
+      targetFbUrl = targetFbUrl.replace(
+        /^https?:\/\/(m|web|touch)\.facebook\.com/i,
+        "https://www.facebook.com"
+      );
 
       let resolvedUrl = targetFbUrl;
       let scrapedTitle = "";
@@ -433,8 +449,12 @@ async function startServer() {
         }
         const htmlSnippet = (await fbRes.text()).slice(0, 65000);
         const ogTitleMatch =
-          htmlSnippet.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
-          htmlSnippet.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i) ||
+          htmlSnippet.match(
+            /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i
+          ) ||
+          htmlSnippet.match(
+            /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i
+          ) ||
           htmlSnippet.match(/<title>([^<]+)<\/title>/i);
         if (ogTitleMatch && ogTitleMatch[1]) {
           const candidateTitle = ogTitleMatch[1]
@@ -457,36 +477,104 @@ async function startServer() {
           }
         }
         const ogUrlMatch =
-          htmlSnippet.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i) ||
-          htmlSnippet.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i);
-        if (ogUrlMatch && ogUrlMatch[1] && ogUrlMatch[1].includes("facebook.com")) {
+          htmlSnippet.match(
+            /<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i
+          ) ||
+          htmlSnippet.match(
+            /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i
+          );
+        if (
+          ogUrlMatch &&
+          ogUrlMatch[1] &&
+          ogUrlMatch[1].includes("facebook.com")
+        ) {
           resolvedUrl = ogUrlMatch[1].replace(/&amp;/g, "&");
         }
         const ogImgMatch =
-          htmlSnippet.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-          htmlSnippet.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-        if (ogImgMatch && ogImgMatch[1] && !ogImgMatch[1].includes("fb_icon")) {
+          htmlSnippet.match(
+            /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+          ) ||
+          htmlSnippet.match(
+            /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
+          );
+        if (
+          ogImgMatch &&
+          ogImgMatch[1] &&
+          !ogImgMatch[1].includes("fb_icon")
+        ) {
           scrapedThumb = ogImgMatch[1].replace(/&amp;/g, "&");
         }
       } catch {
-        // Fallback to URL parsing if redirect/scrape times out
+        // Continue to plugin check
+      }
+
+      // Vérifier si le lecteur intégré Facebook (plugins/video.php) peut réellement lire la vidéo
+      try {
+        const pluginController = new AbortController();
+        const pluginTimeout = setTimeout(() => pluginController.abort(), 3500);
+        const pluginUrl = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(
+          resolvedUrl
+        )}&show_text=false`;
+        const pluginRes = await fetch(pluginUrl, {
+          signal: pluginController.signal,
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml",
+          },
+        });
+        clearTimeout(pluginTimeout);
+        const pluginHtml = await pluginRes.text();
+        const isFbUnavailable =
+          pluginHtml.includes(">Video unavailable<") ||
+          pluginHtml.includes(">Vidéo non disponible<") ||
+          pluginHtml.includes("This video may no longer exist") ||
+          pluginHtml.includes("don&#039;t have permission to view") ||
+          pluginHtml.includes("Ce contenu n’est pas disponible") ||
+          pluginHtml.includes("Ce contenu n&#039;est pas disponible");
+
+        if (isFbUnavailable) {
+          return saveCache({
+            playable: false,
+            reason:
+              "Vidéo Facebook non disponible ou privée (intégration externe refusée par Facebook)",
+            title: scrapedTitle,
+            author: "Facebook",
+            thumb: scrapedThumb,
+            resolvedUrl,
+          });
+        }
+      } catch {
+        // En cas de timeout réseau ponctuel, ne pas bloquer abusivement
       }
 
       const resolvedLower = resolvedUrl.toLowerCase();
-      const isReel = resolvedLower.includes("/reel/") || resolvedLower.includes("/share/r/");
+      const isReel =
+        resolvedLower.includes("/reel/") || resolvedLower.includes("/share/r/");
       const pathParts = resolvedUrl
-        .replace(/^https?:\/\/(www\.|m\.|web\.)?(facebook\.com|fb\.watch|fb\.com)\/?/i, "")
+        .replace(
+          /^https?:\/\/(www\.|m\.|web\.)?(facebook\.com|fb\.watch|fb\.com)\/?/i,
+          ""
+        )
         .split(/[/?#]/)
         .filter(Boolean);
       const authorCandidate =
         pathParts[0] &&
-        !["watch", "reel", "share", "videos", "plugins", "permalink.php", "story.php"].includes(
-          pathParts[0].toLowerCase()
-        )
+        ![
+          "watch",
+          "reel",
+          "share",
+          "videos",
+          "plugins",
+          "permalink.php",
+          "story.php",
+        ].includes(pathParts[0].toLowerCase())
           ? pathParts[0]
           : "Facebook Watch";
       const idCandidate = pathParts[pathParts.length - 1] || "video";
-      res.json({
+
+      return saveCache({
+        playable: true,
         title:
           scrapedTitle ||
           (isReel
@@ -496,10 +584,212 @@ async function startServer() {
         thumb: scrapedThumb,
         resolvedUrl,
       });
-      return;
     }
 
-    res.json({ title: "", author: "", thumb: "" });
+    // 2. TIKTOK (vrai lien tiktok.com)
+    if (lower.includes("tiktok.com")) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(
+          rawUrl
+        )}`;
+        const response = await fetch(oembedUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+          return saveCache({
+            playable: false,
+            reason: "Vidéo TikTok indisponible ou supprimée",
+            title: "",
+            author: "",
+            thumb: "",
+            resolvedUrl: rawUrl,
+          });
+        }
+        const data = (await response.json()) as {
+          title?: string;
+          author_name?: string;
+          thumbnail_url?: string;
+        };
+        return saveCache({
+          playable: true,
+          title: data.title || "Pépite TikTok partagée",
+          author: data.author_name || "Créateur TikTok",
+          thumb: data.thumbnail_url || "",
+          resolvedUrl: rawUrl,
+        });
+      } catch {
+        return saveCache({
+          playable: false,
+          reason: "Impossible de vérifier ou lire ce lien TikTok",
+          title: "",
+          author: "",
+          thumb: "",
+          resolvedUrl: rawUrl,
+        });
+      }
+    }
+
+    // 3. INSTAGRAM (vrai lien instagram.com/reel ou /p/)
+    if (
+      lower.includes("instagram.com/reel/") ||
+      lower.includes("instagram.com/p/") ||
+      lower.includes("instagram.com/tv/")
+    ) {
+      const match = rawUrl.match(
+        /instagram\.com\/(reel|p|tv)\/([A-Za-z0-9_-]+)/i
+      );
+      if (!match || !match[2]) {
+        return saveCache({
+          playable: false,
+          reason: "Lien Instagram invalide",
+          title: "",
+          author: "",
+          thumb: "",
+          resolvedUrl: rawUrl,
+        });
+      }
+      return saveCache({
+        playable: true,
+        title: `Instagram Reel (#${match[2].slice(0, 8)})`,
+        author: "Instagram",
+        thumb: "",
+        resolvedUrl: rawUrl,
+      });
+    }
+
+    // 4. YOUTUBE (via rawUrl youtube.com / youtu.be ou via youtubeId)
+    let extractedYtId = youtubeId;
+    if (
+      !extractedYtId &&
+      (lower.includes("youtube.com") || lower.includes("youtu.be"))
+    ) {
+      const ytMatch = rawUrl.match(
+        /(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})/
+      );
+      if (ytMatch && ytMatch[1]) {
+        extractedYtId = ytMatch[1];
+      }
+    }
+
+    const ytTargetUrl = extractedYtId
+      ? `https://www.youtube.com/watch?v=${extractedYtId}`
+      : lower.includes("youtube.com") || lower.includes("youtu.be")
+      ? rawUrl
+      : "";
+
+    if (ytTargetUrl) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
+          ytTargetUrl
+        )}&format=json`;
+        const response = await fetch(oembedUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+          return saveCache({
+            playable: false,
+            reason:
+              response.status === 401 || response.status === 403
+                ? "Vidéo YouTube privée ou intégration externe désactivée"
+                : "Vidéo YouTube introuvable ou supprimée",
+            title: "",
+            author: "",
+            thumb: "",
+            resolvedUrl: ytTargetUrl,
+          });
+        }
+        const data = (await response.json()) as {
+          title?: string;
+          author_name?: string;
+          thumbnail_url?: string;
+        };
+        return saveCache({
+          playable: true,
+          title: data.title || "",
+          author: data.author_name || "",
+          thumb: data.thumbnail_url || "",
+          resolvedUrl: ytTargetUrl,
+        });
+      } catch {
+        return saveCache({
+          playable: true,
+          title: "",
+          author: "",
+          thumb: "",
+          resolvedUrl: ytTargetUrl,
+        });
+      }
+    }
+
+    return saveCache({
+      playable: false,
+      reason: "Format de lien vidéo non supporté ou indisponible à la lecture",
+      title: "",
+      author: "",
+      thumb: "",
+      resolvedUrl: rawUrl,
+    });
+  }
+
+  // 4. Server-side oEmbed metadata & playability proxy
+  app.get("/api/orbit/oembed", async (req, res) => {
+    const rawUrl = String(req.query.url || "").trim();
+    if (!rawUrl) {
+      res.status(400).json({ error: "Paramètre url manquant.", playable: false });
+      return;
+    }
+    const result = await verifyVideoPlayability({ rawUrl });
+    res.json({
+      playable: result.playable,
+      unavailableReason: result.reason,
+      title: result.title,
+      author: result.author,
+      thumb: result.thumb,
+      resolvedUrl: result.resolvedUrl || rawUrl,
+    });
+  });
+
+  // 5. Batch verification endpoint to automatically purge unavailable/unplayable videos
+  app.post("/api/orbit/verify-videos", async (req, res) => {
+    const items = Array.isArray(req.body?.videos) ? req.body.videos : [];
+    const unavailableIds: number[] = [];
+    const reasons: Record<number, string> = {};
+
+    // Process in small batches of 8 to stay fast and avoid rate-limiting
+    const batchSize = 8;
+    for (let i = 0; i < items.length; i += batchSize) {
+      const slice = items.slice(i, i + batchSize);
+      await Promise.all(
+        slice.map(
+          async (item: {
+            id?: number;
+            rawUrl?: string;
+            youtubeId?: string;
+            platform?: string;
+          }) => {
+            if (!item || typeof item.id !== "number") return;
+            const check = await verifyVideoPlayability({
+              rawUrl: item.rawUrl,
+              youtubeId: item.youtubeId,
+              platform: item.platform,
+            });
+            if (!check.playable) {
+              unavailableIds.push(item.id);
+              reasons[item.id] =
+                check.reason || "Vidéo indisponible ou impossible à lire";
+            }
+          }
+        )
+      );
+    }
+
+    res.json({
+      checkedCount: items.length,
+      unavailableIds,
+      reasons,
+    });
   });
 
   if (process.env.NODE_ENV !== "production") {

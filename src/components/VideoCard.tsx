@@ -30,6 +30,7 @@ import {
   AlertTriangle,
   BookOpen,
   Eye,
+  Trash2,
 } from "lucide-react";
 
 interface FloatingParticleInstance {
@@ -74,6 +75,7 @@ interface VideoCardProps {
   onPlayAudioMode?: (video: OrbitVideo) => void;
   onAddToJukebox?: (video: OrbitVideo) => void;
   onMarkWatched?: (videoId: number) => void;
+  onRemoveUnavailableVideo?: (videoId: number, reason?: string) => void;
 }
 
 function formatSecondsToMmSs(totalSec: number): string {
@@ -109,6 +111,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   onPlayAudioMode,
   onAddToJukebox,
   onMarkWatched,
+  onRemoveUnavailableVideo,
 }) => {
   const isPriorityDebateDomain = DEBATE_PRIORITY_DOMAINS.includes(video.domain);
 
@@ -357,12 +360,30 @@ export const VideoCard: React.FC<VideoCardProps> = ({
           </div>
         </div>
 
-        <div
-          className="flex items-center gap-1 text-xs font-extrabold font-mono-num"
-          style={{ color: "#ffd700" }}
-        >
-          <Star className="w-3.5 h-3.5 fill-current" />
-          <span>{video.score.toFixed(1)}/10</span>
+        <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-1 text-xs font-extrabold font-mono-num"
+            style={{ color: "#ffd700" }}
+          >
+            <Star className="w-3.5 h-3.5 fill-current" />
+            <span>{video.score.toFixed(1)}/10</span>
+          </div>
+          {onRemoveUnavailableVideo && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveUnavailableVideo(
+                  video.id,
+                  "Post supprimé (vidéo signalée indisponible)"
+                );
+              }}
+              className="p-1.5 rounded-lg text-white/45 hover:text-rose-400 hover:bg-rose-500/15 transition-colors cursor-pointer"
+              title="Supprimer ce post / vidéo indisponible"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -379,9 +400,10 @@ export const VideoCard: React.FC<VideoCardProps> = ({
               : video.thumb;
           const iframeSrc =
             !embedConfig.isFacebook &&
-            embedConfig.detectedPlatform === "youtube" &&
-            startAtSeconds > 0
-              ? `${embedConfig.embedUrl}&start=${startAtSeconds}`
+            embedConfig.detectedPlatform === "youtube"
+              ? `${embedConfig.embedUrl}&enablejsapi=1${
+                  startAtSeconds > 0 ? `&start=${startAtSeconds}` : ""
+                }`
               : embedConfig.embedUrl;
 
           return inlinePlaying ? (
@@ -395,9 +417,17 @@ export const VideoCard: React.FC<VideoCardProps> = ({
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
+                onError={() => {
+                  if (onRemoveUnavailableVideo) {
+                    onRemoveUnavailableVideo(
+                      video.id,
+                      "Lecteur vidéo impossible à charger"
+                    );
+                  }
+                }}
                 className="w-full h-full"
               />
-              <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-1.5">
+              <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-1.5 flex-wrap">
                 <a
                   href={
                     video.rawUrl && video.rawUrl.startsWith("http")
@@ -420,6 +450,22 @@ export const VideoCard: React.FC<VideoCardProps> = ({
                 >
                   Vignette
                 </button>
+                {onRemoveUnavailableVideo && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onRemoveUnavailableVideo(
+                        video.id,
+                        "Vidéo indisponible supprimée"
+                      )
+                    }
+                    className="px-2 py-1 rounded-full bg-rose-950/90 hover:bg-rose-900 border border-rose-400/40 text-[10px] font-bold text-rose-200 inline-flex items-center gap-1 cursor-pointer backdrop-blur-md"
+                    title="Supprimer immédiatement ce post si la vidéo est indisponible"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Indisponible ? Supprimer</span>
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -433,7 +479,31 @@ export const VideoCard: React.FC<VideoCardProps> = ({
                   alt={video.title}
                   referrerPolicy="no-referrer"
                   loading="lazy"
-                  onError={() => setImgError(true)}
+                  onLoad={(e) => {
+                    // YouTube renvoie une image grise de 120x90 quand la vidéo est supprimée ou introuvable
+                    if (
+                      resolvedThumb.includes("i.ytimg.com") &&
+                      e.currentTarget.naturalWidth === 120 &&
+                      onRemoveUnavailableVideo
+                    ) {
+                      onRemoveUnavailableVideo(
+                        video.id,
+                        "Vidéo YouTube supprimée ou introuvable"
+                      );
+                    }
+                  }}
+                  onError={() => {
+                    setImgError(true);
+                    if (
+                      resolvedThumb.includes("i.ytimg.com") &&
+                      onRemoveUnavailableVideo
+                    ) {
+                      onRemoveUnavailableVideo(
+                        video.id,
+                        "Miniature vidéo inaccessible (vidéo indisponible)"
+                      );
+                    }
+                  }}
                   className="w-full h-full object-cover opacity-90 transition-transform duration-500 group-hover:scale-105"
                 />
               ) : (

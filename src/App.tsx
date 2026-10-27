@@ -256,17 +256,47 @@ export default function App() {
       "4qH4TG2U24A",
       "pM2n7N9D-Ww",
       "1C2g43d2c3k",
+      "v489GVJhTG0",
+      "m7HxBa9W228",
+      "p5v9T0A3gMY",
+      "UoQWLK6-PWM",
+      "c646TZ1NGJc",
+      "TxWJj4SNfKM",
+      "bA8cMwyaLUc",
+      "b2CFWsCs1aM",
+      "eJ3R35I7B5E",
+      "5f6M8bAB2IQ",
+      "1w1eb2xJnLI",
     ]);
+
+    let purgedIdsSet = new Set<number>();
+    try {
+      const rawPurged = window.localStorage.getItem(
+        "ORBIT_PURGED_VIDEO_IDS_V1"
+      );
+      if (rawPurged) {
+        const parsedPurged = JSON.parse(rawPurged);
+        if (Array.isArray(parsedPurged)) {
+          purgedIdsSet = new Set(
+            parsedPurged.filter((id): id is number => typeof id === "number")
+          );
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     const savedById = new Map<number, OrbitVideo>();
     (loaded.videos || []).forEach((v) => {
-      if (v && typeof v.id === "number") {
+      if (v && typeof v.id === "number" && !purgedIdsSet.has(v.id)) {
         savedById.set(v.id, v);
       }
     });
 
-    // Toujours garantir les 51 vidéos officielles avec leurs IDs YouTube et domaines vérifiés
-    const refreshedDefaultVideos: OrbitVideo[] = DEFAULT_VIDEOS.map((def) => {
+    // Toujours garantir les vidéos officielles vérifiées (en excluant celles purgées comme indisponibles)
+    const refreshedDefaultVideos: OrbitVideo[] = DEFAULT_VIDEOS.filter(
+      (def) => !purgedIdsSet.has(def.id)
+    ).map((def) => {
       const saved = savedById.get(def.id);
       if (!saved) return def;
       return {
@@ -290,7 +320,7 @@ export default function App() {
     });
 
     const defaultIdSet = new Set(DEFAULT_VIDEOS.map((dv) => dv.id));
-    // Conserver uniquement les vraies vidéos ajoutées par l'utilisateur (id >= 3000) et réparer tout ID YouTube ou lien Facebook
+    // Conserver uniquement les vraies vidéos ajoutées par l'utilisateur (id >= 3000) qui ne sont pas purgées ni cassées
     const ownerProfileName = loaded.profile?.name || "Valentin R.";
     const customUserVideos: OrbitVideo[] = (
       Array.isArray(loaded.videos) ? loaded.videos : []
@@ -301,7 +331,9 @@ export default function App() {
           typeof v === "object" &&
           typeof v.id === "number" &&
           !defaultIdSet.has(v.id) &&
-          v.id >= 3000
+          !purgedIdsSet.has(v.id) &&
+          v.id >= 3000 &&
+          !(v.youtubeId && brokenYtIds.has(v.youtubeId))
       )
       .map((v) => {
         const healedYtId =
@@ -1362,19 +1394,26 @@ export default function App() {
       }
     }
 
-    // Résoudre les liens courts Facebook (fb.watch, /share/v/, /share/r/) et métadonnées oEmbed
-    const isFbLink =
-      rawUrl.toLowerCase().includes("facebook.com") ||
-      rawUrl.toLowerCase().includes("fb.watch") ||
-      rawUrl.toLowerCase().includes("fb.com");
-
-    if (rawUrl && (!finalTitle || isFbLink)) {
+    // Vérifier systématiquement la disponibilité de la vidéo et résoudre les liens courts (Facebook, YouTube, TikTok, Instagram)
+    if (rawUrl) {
       try {
         const oembedRes = await fetch(
           `/api/orbit/oembed?url=${encodeURIComponent(rawUrl)}`
         );
         if (oembedRes.ok) {
           const meta = await oembedRes.json();
+          if (meta.playable === false) {
+            setInpUrl("");
+            setInpTitle("");
+            setInpComment("");
+            setComposerOpen(false);
+            showToast(
+              `🗑️ Post supprimé automatiquement : cette vidéo est indisponible ou impossible à lire (${
+                meta.unavailableReason || "intégration refusée"
+              }).`
+            );
+            return;
+          }
           if (meta.resolvedUrl && typeof meta.resolvedUrl === "string") {
             rawUrl = meta.resolvedUrl;
           }
@@ -1501,6 +1540,145 @@ export default function App() {
       );
     }
   };
+
+  // Suppression automatique et définitive des posts / vidéos indisponibles ou impossibles à lire
+  const verifiedVideoIdsRef = useRef<Set<number>>(new Set());
+
+  const handleRemoveUnavailableVideosBatch = (
+    idsToRemove: number[],
+    reasonLabel?: string
+  ) => {
+    if (!idsToRemove || idsToRemove.length === 0) return;
+    const removeSet = new Set(idsToRemove);
+
+    try {
+      const rawPurged = window.localStorage.getItem(
+        "ORBIT_PURGED_VIDEO_IDS_V1"
+      );
+      const existingPurged: number[] = rawPurged ? JSON.parse(rawPurged) : [];
+      const mergedPurged = Array.from(
+        new Set([
+          ...(Array.isArray(existingPurged) ? existingPurged : []),
+          ...idsToRemove,
+        ])
+      );
+      window.localStorage.setItem(
+        "ORBIT_PURGED_VIDEO_IDS_V1",
+        JSON.stringify(mergedPurged)
+      );
+    } catch {
+      // ignore storage errors
+    }
+
+    setOrbitState((prev) => {
+      const beforeCount = prev.videos.length;
+      const filteredVideos = prev.videos.filter((v) => !removeSet.has(v.id));
+      if (filteredVideos.length === beforeCount) return prev;
+      return {
+        ...prev,
+        videos: filteredVideos,
+        watchLaterIds: (prev.watchLaterIds || []).filter(
+          (id) => !removeSet.has(id)
+        ),
+        jukebox: (prev.jukebox || []).filter(
+          (item) => !removeSet.has(item.videoId)
+        ),
+      };
+    });
+
+    setPipVideo((curr) => (curr && removeSet.has(curr.id) ? null : curr));
+    setCinemaModalVideo((curr) =>
+      curr && removeSet.has(curr.id) ? null : curr
+    );
+    setAudioModeVideo((curr) => (curr && removeSet.has(curr.id) ? null : curr));
+
+    showToast(
+      idsToRemove.length === 1
+        ? `🗑️ Post supprimé automatiquement : ${
+            reasonLabel || "vidéo indisponible ou impossible à lire"
+          }.`
+        : `🗑️ Nettoyage auto : ${idsToRemove.length} publications indisponibles supprimées.`
+    );
+  };
+
+  const handleRemoveUnavailableVideo = (videoId: number, reason?: string) => {
+    handleRemoveUnavailableVideosBatch([videoId], reason);
+  };
+
+  // Audit automatique en arrière-plan de toutes les vidéos pour purger celles qui sont indisponibles à la lecture
+  useEffect(() => {
+    const unverified = orbitState.videos.filter(
+      (v) =>
+        v &&
+        typeof v.id === "number" &&
+        !verifiedVideoIdsRef.current.has(v.id)
+    );
+    if (unverified.length === 0) return;
+
+    unverified.forEach((v) => verifiedVideoIdsRef.current.add(v.id));
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/orbit/verify-videos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videos: unverified.map((v) => ({
+              id: v.id,
+              rawUrl: v.rawUrl,
+              youtubeId: v.youtubeId,
+              platform: v.platform,
+            })),
+          }),
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          unavailableIds?: number[];
+          reasons?: Record<number, string>;
+        };
+        if (
+          !cancelled &&
+          Array.isArray(data.unavailableIds) &&
+          data.unavailableIds.length > 0
+        ) {
+          const firstReason =
+            data.reasons?.[data.unavailableIds[0]] ||
+            "vidéo indisponible à la lecture";
+          handleRemoveUnavailableVideosBatch(data.unavailableIds, firstReason);
+        }
+      } catch {
+        // Hors-ligne : ignorer
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orbitState.videos]);
+
+  // Écouteur temps réel des erreurs de lecture IFrame (YouTube IFrame API postMessage onError)
+  useEffect(() => {
+    const handleIframeMessage = (event: MessageEvent) => {
+      if (typeof event.data !== "string") return;
+      if (!event.data.includes("onError")) return;
+      try {
+        const parsed = JSON.parse(event.data);
+        if (parsed && parsed.event === "onError" && parsed.info) {
+          if (pipVideo) {
+            handleRemoveUnavailableVideo(
+              pipVideo.id,
+              "Erreur de lecture détectée dans le lecteur vidéo"
+            );
+          }
+        }
+      } catch {
+        // ignore non-JSON messages
+      }
+    };
+    window.addEventListener("message", handleIframeMessage);
+    return () => window.removeEventListener("message", handleIframeMessage);
+  }, [pipVideo]);
 
   // Fonctionnalité 14 : Ajouter / Retirer du Panier Intelligent 'À regarder ce soir'
   const handleToggleWatchLater = (video: OrbitVideo) => {
@@ -3819,6 +3997,7 @@ export default function App() {
             }}
             navOverlayOpen={immersiveNavOpen}
             onToggleNavOverlay={() => setImmersiveNavOpen((o) => !o)}
+            onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
           />
         </main>
       ) : (
@@ -4398,6 +4577,7 @@ export default function App() {
                         handleMarkVideoWatched(vid.id);
                       }}
                       onAddToJukebox={handleAddToJukebox}
+                      onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
                     />
                   ))}
                 </div>
@@ -5105,6 +5285,7 @@ export default function App() {
                             handleMarkVideoWatched(vid.id);
                           }}
                           onAddToJukebox={handleAddToJukebox}
+                          onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
                         />
                       ))}
                     </div>
@@ -5467,6 +5648,7 @@ export default function App() {
                         handleMarkVideoWatched(vid.id);
                       }}
                       onAddToJukebox={handleAddToJukebox}
+                      onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
                     />
                   ))}
                 </div>
@@ -5699,6 +5881,7 @@ export default function App() {
                         handleMarkVideoWatched(vid.id);
                       }}
                       onAddToJukebox={handleAddToJukebox}
+                      onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
                     />
                   ))}
                 </div>
@@ -5914,6 +6097,7 @@ export default function App() {
                         handleMarkVideoWatched(vid.id);
                       }}
                       onAddToJukebox={handleAddToJukebox}
+                      onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
                     />
                   ))}
                 </div>
