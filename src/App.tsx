@@ -47,6 +47,7 @@ import { AlphabetteDevOpsView } from "./components/AlphabetteDevOpsView";
 import { ReglageEtImportationView } from "./components/ReglageEtImportationView";
 import { CreatorPortfolioView } from "./components/CreatorPortfolioView";
 import { PlaylistQrModal } from "./components/PlaylistQrModal";
+import { PlaylistsAndHistoryModal } from "./components/PlaylistsAndHistoryModal";
 import {
   ConsentAndAcquisitionModal,
   ImportedNetworkPayload,
@@ -109,6 +110,7 @@ import {
   Settings,
   ArrowRight,
   ChevronRight,
+  ListMusic,
 } from "lucide-react";
 
 type PageId = "p1" | "p2" | "p3" | "p4" | "p5";
@@ -948,6 +950,10 @@ export default function App() {
     curator: string;
     videoIds: number[];
   } | null>(null);
+
+  // Modal Playlists Personnalisées & Historique de visionnage
+  const [isPlaylistsHistoryModalOpen, setIsPlaylistsHistoryModalOpen] =
+    useState(false);
 
   // Idée 2 : Jukebox Collaboratif en Temps Réel
   const [jukeboxPlayingTrack, setJukeboxPlayingTrack] =
@@ -5166,6 +5172,16 @@ export default function App() {
 
               <button
                 type="button"
+                onClick={() => setIsPlaylistsHistoryModalOpen(true)}
+                className="px-2.5 py-1.5 rounded-full text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0 hover:text-cyan-300"
+                title="Gérer vos playlists personnalisées et votre historique de visionnage"
+              >
+                <ListMusic className="w-3.5 h-3.5 text-cyan-300" />
+                <span className="hidden sm:inline">Playlists</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setHeaderToolsOpen((o) => !o)}
                 className="px-2.5 py-1.5 rounded-full text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
                 style={{
@@ -5206,7 +5222,18 @@ export default function App() {
             </div>
 
             {headerToolsOpen && (
-              <div className="w-full pt-1.5 grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+              <div className="w-full pt-1.5 grid grid-cols-2 sm:grid-cols-6 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHeaderToolsOpen(false);
+                    setIsPlaylistsHistoryModalOpen(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap text-cyan-300 border-cyan-400/30"
+                >
+                  <ListMusic className="w-3 h-3 text-cyan-300" />
+                  <span>Playlists & Historique</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleToggleFocusAbsolu}
@@ -5685,8 +5712,22 @@ export default function App() {
                 </div>
               )}
 
-              {/* TIROIRS RAPIDES GROUPÉS PAR DEUX (Défi de Curation, Mon Empreinte Culturelle, Téléchargeur FB/.MP4, Amis) */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+              {/* TIROIRS RAPIDES GROUPÉS PAR DEUX + PLAYLISTS */}
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsPlaylistsHistoryModalOpen(true)}
+                  className="px-2.5 py-1.5 rounded-xl glass-panel flex items-center justify-between gap-1.5 text-left cursor-pointer transition-all hover:bg-white/5 border-cyan-400/30"
+                  title="Gérer vos playlists personnalisées et l'historique de visionnage"
+                >
+                  <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-extrabold text-cyan-300 truncate">
+                    <ListMusic className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                    <span className="truncate">Mes Playlists</span>
+                  </span>
+                  <span className="text-[10px] font-mono-num shrink-0 px-1.5 py-0.5 rounded bg-white/5 text-cyan-300">
+                    ↗
+                  </span>
+                </button>
                 <button
                   type="button"
                   onClick={() =>
@@ -10427,6 +10468,49 @@ export default function App() {
         onDeleteAccountServerData={handleDeleteAccountServerData}
         onRevokeConnector={handleRevokeNetwork}
         onShowToast={showToast}
+      />
+
+      {/* ==========================================================
+          MODAL PLAYLISTS PERSONNALISÉES, HISTORIQUE & RACCOURCIS
+          ========================================================== */}
+      <PlaylistsAndHistoryModal
+        isOpen={isPlaylistsHistoryModalOpen}
+        onClose={() => setIsPlaylistsHistoryModalOpen(false)}
+        allVideos={orbitState.videos}
+        onSelectVideoForPlayback={(vid, startSec) => {
+          setCinemaModalVideo(vid);
+          setCinemaMode(true);
+          showToast(
+            `Lecture de « ${vid.title} »${
+              startSec && startSec > 0
+                ? ` (reprise à ${Math.floor(startSec)}s)`
+                : ""
+            }`
+          );
+        }}
+        onPlayPlaylist={(videoIds, playlistTitle) => {
+          setScannedPlaylistBanner({
+            title: playlistTitle,
+            curator: orbitState.profile.name,
+            videoIds,
+          });
+          setActivePage("p1");
+          showToast(
+            `Playlist « ${playlistTitle} » prête (${videoIds.length} vidéos)`
+          );
+        }}
+        onOpenQrShare={(pl) => {
+          const plVideos = orbitState.videos.filter((v) =>
+            pl.videoIds.includes(v.id)
+          );
+          setQrModalConfig({
+            isOpen: true,
+            title: pl.title,
+            subtitle: `${pl.videoIds.length} vidéos sélectionnées`,
+            sourcePageLabel: "Ma Playlist Orbit",
+            videos: plVideos,
+          });
+        }}
       />
     </div>
   );

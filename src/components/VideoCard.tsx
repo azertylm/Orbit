@@ -10,6 +10,10 @@ import {
 } from "../data/orbitData";
 import { UniversalVideoPlayer } from "./UniversalVideoPlayer";
 import {
+  OrbitStorageService,
+  UserPlaylist,
+} from "../services/storageAdapter";
+import {
   Play,
   MessageSquare,
   Repeat2,
@@ -35,6 +39,8 @@ import {
   Link2,
   Copy,
   Share2,
+  ListMusic,
+  Plus,
 } from "lucide-react";
 
 interface FloatingParticleInstance {
@@ -172,6 +178,25 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   )}&subdomain=${encodeURIComponent(
     video.subdomain
   )}&comment=${encodeURIComponent(repostNote)}&auto_publish=1`;
+
+  const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
+  const [userPlaylists, setUserPlaylists] = useState<UserPlaylist[]>([]);
+
+  const handleOpenPlaylistPicker = () => {
+    setUserPlaylists(OrbitStorageService.getUserPlaylists());
+    setPlaylistPickerOpen((o) => !o);
+  };
+
+  const handleToggleVideoInPlaylist = (playlistId: string) => {
+    const pl = userPlaylists.find((p) => p.id === playlistId);
+    if (!pl) return;
+    if (pl.videoIds.includes(video.id)) {
+      OrbitStorageService.removeVideoFromPlaylist(playlistId, video.id);
+    } else {
+      OrbitStorageService.addVideoToPlaylist(playlistId, video.id);
+    }
+    setUserPlaylists(OrbitStorageService.getUserPlaylists());
+  };
 
   const handleCopySiteLink = async () => {
     triggerShareFeedback();
@@ -996,6 +1021,19 @@ export const VideoCard: React.FC<VideoCardProps> = ({
               )}
             </button>
 
+            <button
+              type="button"
+              onClick={handleOpenPlaylistPicker}
+              className={`inline-flex items-center gap-1 font-semibold transition-all hover:text-cyan-300 opacity-80 hover:opacity-100 whitespace-nowrap shrink-0 cursor-pointer ${
+                playlistPickerOpen ? "text-cyan-300" : ""
+              }`}
+              style={{ color: playlistPickerOpen ? undefined : "var(--text-muted)" }}
+              title="Ajouter à une playlist"
+            >
+              <ListMusic className="w-3 h-3 text-cyan-300" />
+              <span>Playlist</span>
+            </button>
+
             <a
               href={video.rawUrl}
               target="_blank"
@@ -1007,6 +1045,51 @@ export const VideoCard: React.FC<VideoCardProps> = ({
               <ExternalLink className="w-3 h-3" />
             </a>
           </div>
+
+          {/* Tiroir d'ajout à une Playlist */}
+          {playlistPickerOpen && (
+            <div className="mt-1 p-3 rounded-xl bg-[#0a0e1a] border border-cyan-400/30 text-xs space-y-2 animate-in fade-in">
+              <div className="flex items-center justify-between font-bold text-cyan-300">
+                <span className="flex items-center gap-1.5">
+                  <ListMusic className="w-3.5 h-3.5" />
+                  <span>Ajouter à une playlist</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPlaylistPickerOpen(false)}
+                  className="text-white/40 hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-1">
+                {userPlaylists.map((pl) => {
+                  const inPlaylist = pl.videoIds.includes(video.id);
+                  return (
+                    <button
+                      key={pl.id}
+                      type="button"
+                      onClick={() => handleToggleVideoInPlaylist(pl.id)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left text-[11px] cursor-pointer transition-colors ${
+                        inPlaylist
+                          ? "bg-cyan-950/60 border border-cyan-400/40 text-cyan-200"
+                          : "bg-white/5 hover:bg-white/10 text-white/80"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <span>{pl.emoji || "📁"}</span>
+                        <span className="font-bold truncate">{pl.title}</span>
+                      </span>
+                      <span className="text-[10px] font-bold shrink-0 text-cyan-300">
+                        {inPlaylist ? "✓ Ajouté" : "+ Ajouter"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Idée 4 : AI Summary Drawer */}
           {summaryOpen && (

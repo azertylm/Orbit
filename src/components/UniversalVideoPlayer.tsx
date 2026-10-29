@@ -19,6 +19,7 @@ import {
   Layers,
   Download,
   Upload,
+  Gauge,
 } from "lucide-react";
 
 export type SupportedPlatform =
@@ -491,10 +492,17 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
   const [scrubValue, setScrubValue] = useState<number>(startAtSeconds || 0);
   const [isControlsActive, setIsControlsActive] = useState<boolean>(false);
 
+  const SPEED_OPTIONS = useMemo(() => [0.75, 1.0, 1.25, 1.5, 2.0], []);
+  const [playbackRate, setPlaybackRate] = useState<number>(() =>
+    OrbitStorageService.getPlaybackSpeed()
+  );
+  const [resumeNotice, setResumeNotice] = useState<string | null>(null);
+
   const initialStartRef = useRef<number>(startAtSeconds || 0);
   const hasLiveTimeRef = useRef<boolean>(false);
   const onTimeUpdateSecondsRef = useRef(onTimeUpdateSeconds);
   const controlsIdleTimerRef = useRef<number | null>(null);
+  const resumeTimerRef = useRef<number | null>(null);
   const playerContainerRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const html5VideoRef = useRef<HTMLVideoElement | null>(null);
@@ -510,10 +518,42 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     }, 2200);
   }, []);
 
+  const handleCyclePlaybackRate = useCallback(() => {
+    wakeUpControls();
+    const currIdx = SPEED_OPTIONS.indexOf(playbackRate);
+    const nextRate = SPEED_OPTIONS[(currIdx + 1) % SPEED_OPTIONS.length];
+    setPlaybackRate(nextRate);
+    OrbitStorageService.savePlaybackSpeed(nextRate);
+    if (html5VideoRef.current) {
+      try {
+        html5VideoRef.current.playbackRate = nextRate;
+      } catch {
+        // ignore
+      }
+    }
+    if (iframeRef.current?.contentWindow) {
+      try {
+        iframeRef.current.contentWindow.postMessage(
+          JSON.stringify({
+            event: "command",
+            func: "setPlaybackRate",
+            args: [nextRate],
+          }),
+          "*"
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }, [SPEED_OPTIONS, playbackRate, wakeUpControls]);
+
   useEffect(() => {
     return () => {
       if (controlsIdleTimerRef.current) {
         window.clearTimeout(controlsIdleTimerRef.current);
+      }
+      if (resumeTimerRef.current) {
+        window.clearTimeout(resumeTimerRef.current);
       }
     };
   }, []);
@@ -915,6 +955,45 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     loop,
   ]);
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      if (e.key === " " || e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        togglePlayPauseInternal();
+        wakeUpControls();
+      } else if (e.key === "ArrowLeft" || e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        seekToSeconds(Math.max(0, currentTime - 10));
+        wakeUpControls();
+      } else if (e.key === "ArrowRight" || e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        seekToSeconds(Math.min(duration, currentTime + 10));
+        wakeUpControls();
+      } else if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        if (playerContainerRef.current) {
+          if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+          } else {
+            playerContainerRef.current.requestFullscreen().catch(() => {});
+          }
+        }
+      } else if (e.key >= "0" && e.key <= "9") {
+        e.preventDefault();
+        const pct = Number(e.key) * 0.1;
+        seekToSeconds(Math.floor(duration * pct));
+        wakeUpControls();
+      }
+    },
+    [togglePlayPauseInternal, seekToSeconds, currentTime, duration, wakeUpControls]
+  );
+
   // URL externe officielle pour ouvrir dans l'application / onglet natif
   const externalSourceUrl = useMemo(() => {
     if (rawUrl && rawUrl.startsWith("http")) {
@@ -926,18 +1005,41 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     return "https://www.youtube.com";
   }, [rawUrl, validYoutubeId]);
 
-  // Réinitialiser l'état lors du changement de vidéo
+  // Réinitialiser l'état lors du changement de vidéo avec reprise intelligente de lecture
   useEffect(() => {
-    initialStartRef.current = startAtSeconds || 0;
+    const savedProg =
+      video.id && (!startAtSeconds || startAtSeconds === 0)
+        ? OrbitStorageService.getVideoProgress(video.id)
+        : 0;
+    const effectiveStart = startAtSeconds || savedProg;
+
+    initialStartRef.current = effectiveStart;
     hasLiveTimeRef.current = false;
     setIsReady(false);
     setErrorDiagnostic(null);
     setRetriedWithFallback(false);
     setEngineMode(initialEngineMode);
-    setCurrentTime(startAtSeconds || 0);
-    setScrubValue(startAtSeconds || 0);
+    setCurrentTime(effectiveStart);
+    setScrubValue(effectiveStart);
     setDuration(Math.max(60, (video.durationMinutes || 4) * 60));
-  }, [video.id, rawUrl, video.youtubeId, initialEngineMode, video.durationMinutes]);
+
+    if (savedProg > 4 && (!startAtSeconds || startAtSeconds === 0)) {
+      setResumeNotice(`Reprise à ${formatPlayerTime(savedProg)}`);
+      if (resumeTimerRef.current) window.clearTimeout(resumeTimerRef.current);
+      resumeTimerRef.current = window.setTimeout(() => {
+        setResumeNotice(null);
+      }, 3800);
+    } else {
+      setResumeNotice(null);
+    }
+  }, [
+    video.id,
+    rawUrl,
+    video.youtubeId,
+    initialEngineMode,
+    video.durationMinutes,
+    startAtSeconds,
+  ]);
 
   // Si le parent demande un saut temporel (ex: clic sur un Moment Fort), se déplacer dans la vidéo sans recharger
   useEffect(() => {
@@ -1039,6 +1141,15 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
                 onTimeUpdateSeconds(
                   parsed.info.currentTime,
                   parsed.info.duration || duration
+                );
+              }
+              if (video.id) {
+                OrbitStorageService.saveVideoProgress(
+                  video.id,
+                  video.title,
+                  parsed.info.currentTime,
+                  parsed.info.duration || duration,
+                  video.thumb
                 );
               }
             }
@@ -1145,6 +1256,8 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
   return (
     <div
       ref={playerContainerRef}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
       onMouseMove={wakeUpControls}
       onMouseEnter={wakeUpControls}
       onPointerDown={wakeUpControls}
@@ -1157,7 +1270,7 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
           setIsControlsActive(false);
         }
       }}
-      className={`relative w-full h-full bg-black overflow-hidden select-none flex flex-col ${className}`}
+      className={`relative w-full h-full bg-black overflow-hidden select-none flex flex-col focus:outline-none ${className}`}
     >
       {/* Input caché permettant d'importer un fichier .MP4 téléchargé directement dans ce post */}
       <input
@@ -1172,6 +1285,26 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
           ZONE VIDÉO PRINCIPALE PLEIN CADRE (SANS SUPERPOSITION PERMANENTE)
           ===================================================================== */}
       <div className="relative flex-1 min-h-0 w-full h-full bg-black">
+        {/* Toast de reprise automatique de lecture */}
+        {resumeNotice && (
+          <div
+            className="absolute top-3 right-3 z-35 px-3 py-1.5 rounded-xl bg-black/85 backdrop-blur-md border border-cyan-400/40 text-[11px] font-bold text-white shadow-xl flex items-center gap-2 animate-in fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-cyan-300">⏱️ {resumeNotice}</span>
+            <button
+              type="button"
+              onClick={() => {
+                seekToSeconds(0);
+                setResumeNotice(null);
+              }}
+              className="px-1.5 py-0.5 rounded bg-white/15 hover:bg-white/25 text-[10px] font-bold text-white/90 cursor-pointer"
+              title="Reprendre depuis le début"
+            >
+              Recommencer
+            </button>
+          </div>
+        )}
         {/* Badge compact en haut à gauche, masqué automatiquement pendant la lecture */}
         {showTopBar && !hideCustomSeekBar && (
           <div
@@ -1362,6 +1495,15 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
                 }
                 if (onTimeUpdateSeconds) {
                   onTimeUpdateSeconds(ct, dur);
+                }
+                if (video.id) {
+                  OrbitStorageService.saveVideoProgress(
+                    video.id,
+                    video.title,
+                    ct,
+                    dur,
+                    video.thumb
+                  );
                 }
               }}
               onLoadedData={(e) => {
@@ -1638,6 +1780,17 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
                   {formatPlayerTime(duration)}
                 </span>
               </span>
+
+              {/* Sélecteur de vitesse de lecture */}
+              <button
+                type="button"
+                onClick={handleCyclePlaybackRate}
+                className="px-1.5 h-6 rounded-md bg-white/[0.08] hover:bg-white/20 border border-white/15 text-[10px] font-mono-num font-bold text-cyan-300 inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                title="Changer la vitesse de lecture (0.75x, 1x, 1.25x, 1.5x, 2x)"
+              >
+                <Gauge className="w-2.5 h-2.5" />
+                <span>{playbackRate}x</span>
+              </button>
             </div>
 
             {/* Barre d'outils moteur/MP4 également masquée quand on ne l'utilise pas */}

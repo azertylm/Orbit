@@ -200,8 +200,30 @@ const OEMBED_CACHE_KEY = "ORBIT_OEMBED_CACHE_V2";
 const UI_PROFILE_KEY = "ORBIT_UI_PROFILE_V2";
 const PRIVATE_NOTES_KEY = "ORBIT_PRIVATE_NOTES_V2";
 const SAVED_SEARCHES_KEY = "ORBIT_SAVED_SEARCHES_V2";
+const PLAYLISTS_KEY = "ORBIT_USER_PLAYLISTS_V1";
+const PLAYBACK_HISTORY_KEY = "ORBIT_PLAYBACK_HISTORY_V1";
+const PLAYBACK_PREFS_KEY = "ORBIT_PLAYBACK_PREFS_V1";
 const IDB_NAME = "OrbitResilienceDB";
 const IDB_STORE = "snapshots";
+
+export interface UserPlaylist {
+  id: string;
+  title: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  videoIds: number[];
+  emoji?: string;
+}
+
+export interface PlaybackHistoryItem {
+  videoId: number;
+  title: string;
+  seconds: number;
+  duration: number;
+  timestamp: number;
+  thumb?: string;
+}
 
 export interface PrivateNoteItem {
   id: string;
@@ -851,5 +873,209 @@ export const OrbitStorageService = {
         resolve(null);
       }
     });
+  },
+
+  // =========================================================================
+  // GESTION DE LA REPRISE DE LECTURE ET HISTORIQUE (RESUME PROGRESSION)
+  // =========================================================================
+  saveVideoProgress(
+    videoId: number,
+    title: string,
+    seconds: number,
+    duration: number,
+    thumb?: string
+  ): void {
+    if (!videoId || seconds < 3) return;
+    try {
+      const history = this.getPlaybackHistory();
+      // Si la vidéo est quasiment finie (>92%), réinitialiser la reprise à 0
+      const isFinished = duration > 0 && seconds / duration > 0.92;
+      const effectiveSec = isFinished ? 0 : Math.floor(seconds);
+
+      const filtered = history.filter((h) => h.videoId !== videoId);
+      filtered.unshift({
+        videoId,
+        title,
+        seconds: effectiveSec,
+        duration: Math.floor(duration),
+        timestamp: Date.now(),
+        thumb,
+      });
+
+      // Garder les 50 dernières vidéos pour éviter d'encombrer le stockage
+      localStorage.setItem(
+        PLAYBACK_HISTORY_KEY,
+        JSON.stringify(filtered.slice(0, 50))
+      );
+    } catch {
+      // Ignore
+    }
+  },
+
+  getVideoProgress(videoId: number): number {
+    if (!videoId) return 0;
+    try {
+      const history = this.getPlaybackHistory();
+      const item = history.find((h) => h.videoId === videoId);
+      return item && item.seconds > 3 ? item.seconds : 0;
+    } catch {
+      return 0;
+    }
+  },
+
+  getPlaybackHistory(): PlaybackHistoryItem[] {
+    try {
+      const raw = localStorage.getItem(PLAYBACK_HISTORY_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  clearPlaybackHistory(): void {
+    try {
+      localStorage.removeItem(PLAYBACK_HISTORY_KEY);
+    } catch {
+      // Ignore
+    }
+  },
+
+  // =========================================================================
+  // PRÉFÉRENCES DE LECTURE (VITESSE ET ENCHAÎNEMENT AUTOMATIQUE)
+  // =========================================================================
+  getPlaybackSpeed(): number {
+    try {
+      const raw = localStorage.getItem(PLAYBACK_PREFS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.speed === "number") return parsed.speed;
+      }
+    } catch {
+      // Ignore
+    }
+    return 1.0;
+  },
+
+  savePlaybackSpeed(speed: number): void {
+    try {
+      const raw = localStorage.getItem(PLAYBACK_PREFS_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      parsed.speed = speed;
+      localStorage.setItem(PLAYBACK_PREFS_KEY, JSON.stringify(parsed));
+    } catch {
+      // Ignore
+    }
+  },
+
+  getAutoplayNext(): boolean {
+    try {
+      const raw = localStorage.getItem(PLAYBACK_PREFS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.autoplay === "boolean") return parsed.autoplay;
+      }
+    } catch {
+      // Ignore
+    }
+    return true; // Enchaînement automatique actif par défaut dans un feed moderne
+  },
+
+  saveAutoplayNext(enabled: boolean): void {
+    try {
+      const raw = localStorage.getItem(PLAYBACK_PREFS_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      parsed.autoplay = enabled;
+      localStorage.setItem(PLAYBACK_PREFS_KEY, JSON.stringify(parsed));
+    } catch {
+      // Ignore
+    }
+  },
+
+  // =========================================================================
+  // GESTION DES PLAYLISTS PERSONNALISÉES
+  // =========================================================================
+  getUserPlaylists(): UserPlaylist[] {
+    try {
+      const raw = localStorage.getItem(PLAYLISTS_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // Ignore
+    }
+    const defaultPlaylists: UserPlaylist[] = [
+      {
+        id: "orbit-playlist-favorites",
+        title: "Coups de Cœur Orbit",
+        description: "Sélection des meilleures découvertes vidéos",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        videoIds: [1, 2, 3],
+        emoji: "⭐",
+      },
+      {
+        id: "orbit-playlist-watchlater",
+        title: "À regarder plus tard",
+        description: "Vidéos mises de côté pour un visionnage au calme",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        videoIds: [],
+        emoji: "⏳",
+      },
+    ];
+    try {
+      localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(defaultPlaylists));
+    } catch {
+      // Ignore
+    }
+    return defaultPlaylists;
+  },
+
+  saveUserPlaylist(playlist: UserPlaylist): void {
+    try {
+      const all = this.getUserPlaylists().filter((p) => p.id !== playlist.id);
+      all.unshift({
+        ...playlist,
+        updatedAt: new Date().toISOString(),
+      });
+      localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(all));
+    } catch {
+      // Ignore
+    }
+  },
+
+  deleteUserPlaylist(id: string): void {
+    try {
+      const all = this.getUserPlaylists().filter((p) => p.id !== id);
+      localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(all));
+    } catch {
+      // Ignore
+    }
+  },
+
+  addVideoToPlaylist(playlistId: string, videoId: number): void {
+    try {
+      const all = this.getUserPlaylists();
+      const target = all.find((p) => p.id === playlistId);
+      if (target && !target.videoIds.includes(videoId)) {
+        target.videoIds.push(videoId);
+        target.updatedAt = new Date().toISOString();
+        localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(all));
+      }
+    } catch {
+      // Ignore
+    }
+  },
+
+  removeVideoFromPlaylist(playlistId: string, videoId: number): void {
+    try {
+      const all = this.getUserPlaylists();
+      const target = all.find((p) => p.id === playlistId);
+      if (target) {
+        target.videoIds = target.videoIds.filter((id) => id !== videoId);
+        target.updatedAt = new Date().toISOString();
+        localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(all));
+      }
+    } catch {
+      // Ignore
+    }
   },
 };

@@ -51,6 +51,7 @@ import {
   Smartphone,
   SlidersHorizontal,
   Trash2,
+  Gauge,
 } from "lucide-react";
 
 interface FloatingParticleInstance {
@@ -214,12 +215,51 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
     FloatingParticleInstance[]
   >([]);
 
+  const SPEED_CHOICES = useMemo(() => [0.75, 1.0, 1.25, 1.5, 2.0], []);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(() =>
+    OrbitStorageService.getPlaybackSpeed()
+  );
+  const [autoplayNext, setAutoplayNext] = useState<boolean>(() =>
+    OrbitStorageService.getAutoplayNext()
+  );
+  const hasAutoPlayedRef = useRef<boolean>(false);
+
   const triggerEphemeralFeedback = useCallback((msg: string) => {
     setEphemeralFeedback(msg);
     window.setTimeout(() => {
       setEphemeralFeedback((prev) => (prev === msg ? null : prev));
     }, 1800);
   }, []);
+
+  const handleCycleFeedSpeed = useCallback(() => {
+    scheduleAutoHide();
+    const currIdx = SPEED_CHOICES.indexOf(playbackSpeed);
+    const nextSpeed = SPEED_CHOICES[(currIdx + 1) % SPEED_CHOICES.length];
+    setPlaybackSpeed(nextSpeed);
+    OrbitStorageService.savePlaybackSpeed(nextSpeed);
+    sendYouTubeCommand("setPlaybackRate", [nextSpeed]);
+    triggerEphemeralFeedback(`Vitesse : ${nextSpeed}x`);
+  }, [
+    SPEED_CHOICES,
+    playbackSpeed,
+    scheduleAutoHide,
+    sendYouTubeCommand,
+    triggerEphemeralFeedback,
+  ]);
+
+  const handleToggleAutoplay = useCallback(() => {
+    scheduleAutoHide();
+    setAutoplayNext((prev) => {
+      const next = !prev;
+      OrbitStorageService.saveAutoplayNext(next);
+      triggerEphemeralFeedback(
+        next
+          ? "Enchaînement auto : Actif 🔁"
+          : "Enchaînement auto : Manuel ⏸️"
+      );
+      return next;
+    });
+  }, [scheduleAutoHide, triggerEphemeralFeedback]);
 
   // Auto-hide controls after 2.8 seconds of inactivity when no drawer/menu is open
   const scheduleAutoHide = useCallback(() => {
@@ -407,6 +447,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
 
   // Sync draftRating, pause non-active iframes, and auto-hide controls on slide change
   useEffect(() => {
+    hasAutoPlayedRef.current = false;
     Object.entries(iframeRefs.current).forEach(([idxStr, frame]) => {
       const idxNum = Number(idxStr);
       if (idxNum !== activeIndex && frame?.contentWindow) {
@@ -517,6 +558,25 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
       } else if (e.key.toLowerCase() === "h") {
         e.preventDefault();
         setUiVisible(!isUiVisible);
+      } else if (e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleCycleFeedSpeed();
+      } else if (e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        handleToggleMute();
+      } else if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        handleToggleNativeFullscreen();
+      } else if (e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        const nextSec = Math.max(0, elapsedSeconds - 10);
+        handleSeekInActiveVideo(nextSec);
+        triggerEphemeralFeedback(`⏪ -10s (${formatSecondsToMmSs(nextSec)})`);
+      } else if (e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        const nextSec = Math.min(activeDurationSec, elapsedSeconds + 10);
+        handleSeekInActiveVideo(nextSec);
+        triggerEphemeralFeedback(`⏩ +10s (${formatSecondsToMmSs(nextSec)})`);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -528,6 +588,9 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
     activeDurationSec,
     handleSeekInActiveVideo,
     handleTogglePlayPause,
+    handleToggleMute,
+    handleToggleNativeFullscreen,
+    handleCycleFeedSpeed,
     isUiVisible,
     setUiVisible,
     triggerEphemeralFeedback,
@@ -824,6 +887,29 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
                         setElapsedSeconds(Math.floor(curSec));
                         if (durSec > 0) {
                           setActiveDurationSec(Math.floor(durSec));
+                        }
+                        if (video.id) {
+                          OrbitStorageService.saveVideoProgress(
+                            video.id,
+                            video.title,
+                            curSec,
+                            durSec,
+                            video.thumb
+                          );
+                        }
+                        if (
+                          autoplayNext &&
+                          durSec > 8 &&
+                          curSec >= durSec - 1.2 &&
+                          !hasAutoPlayedRef.current
+                        ) {
+                          hasAutoPlayedRef.current = true;
+                          if (activeIndex < displaySlides.length - 1) {
+                            triggerEphemeralFeedback("Vidéo suivante auto ⏩");
+                            window.setTimeout(() => {
+                              scrollToSlide(activeIndex + 1);
+                            }, 500);
+                          }
                         }
                       }}
                       className="w-full h-full"
@@ -1370,6 +1456,35 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
                     {formatSecondsToMmSs(Math.max(60, activeDurationSec))}
                   </span>
                 </span>
+
+                {/* Sélecteur de vitesse de lecture */}
+                <button
+                  type="button"
+                  onClick={handleCycleFeedSpeed}
+                  className="px-2 h-6 rounded-full bg-black/65 hover:bg-white/20 border border-white/15 text-[10px] font-mono-num font-bold text-cyan-300 inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                  title="Changer la vitesse de lecture (0.75x, 1x, 1.25x, 1.5x, 2x)"
+                >
+                  <Gauge className="w-2.5 h-2.5" />
+                  <span>{playbackSpeed}x</span>
+                </button>
+
+                {/* Bouton Enchaînement automatique (Autoplay) */}
+                <button
+                  type="button"
+                  onClick={handleToggleAutoplay}
+                  className={`px-2 h-6 rounded-full border text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors ${
+                    autoplayNext
+                      ? "bg-emerald-950/70 border-emerald-400/40 text-emerald-300"
+                      : "bg-black/65 border-white/15 text-white/55"
+                  }`}
+                  title={
+                    autoplayNext
+                      ? "Enchaînement automatique activé : la vidéo suivante démarre dès la fin de celle-ci"
+                      : "Enchaînement automatique désactivé"
+                  }
+                >
+                  <span>{autoplayNext ? "Auto 🔁" : "Manuel ⏸️"}</span>
+                </button>
               </div>
             )}
 
