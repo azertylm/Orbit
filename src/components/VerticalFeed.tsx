@@ -12,6 +12,8 @@ import { UniversalVideoPlayer } from "./UniversalVideoPlayer";
 import {
   Play,
   Pause,
+  RotateCcw,
+  RotateCw,
   Star,
   Share2,
   Repeat2,
@@ -205,7 +207,8 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
   const [imgErrors, setImgErrors] = useState<Record<string, boolean>>({});
 
   // Feature 18: Live playback timer & floating reaction particles
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(15);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [activeDurationSec, setActiveDurationSec] = useState<number>(240);
   const [seekStartSec, setSeekStartSec] = useState<number>(0);
   const [floatingParticles, setFloatingParticles] = useState<
     FloatingParticleInstance[]
@@ -425,10 +428,26 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
       setActiveDrawer(null);
       setDetailsExpanded(false);
       setMoreActionsOpen(false);
-      setElapsedSeconds(12);
+      setElapsedSeconds(0);
+      setActiveDurationSec(
+        Math.max(60, (currentSlide.video.durationMinutes || 4) * 60)
+      );
       setSeekStartSec(0);
     }
   }, [activeIndex, displaySlides]);
+
+  const handleSeekInActiveVideo = useCallback(
+    (targetSec: number) => {
+      const clamped = Math.max(
+        0,
+        Math.min(Math.max(60, activeDurationSec), Math.floor(targetSec))
+      );
+      setElapsedSeconds(clamped);
+      setSeekStartSec(clamped);
+      if (isUiVisible) scheduleAutoHide();
+    },
+    [activeDurationSec, isUiVisible, scheduleAutoHide]
+  );
 
   // Increment live playback timer while active video is playing
   useEffect(() => {
@@ -482,6 +501,16 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         scrollToSlide(Math.max(0, activeIndex - 1));
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        const nextSec = Math.max(0, elapsedSeconds - 10);
+        handleSeekInActiveVideo(nextSec);
+        triggerEphemeralFeedback(`⏪ -10s (${formatSecondsToMmSs(nextSec)})`);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        const nextSec = Math.min(activeDurationSec, elapsedSeconds + 10);
+        handleSeekInActiveVideo(nextSec);
+        triggerEphemeralFeedback(`⏩ +10s (${formatSecondsToMmSs(nextSec)})`);
       } else if (e.key === " ") {
         e.preventDefault();
         handleTogglePlayPause();
@@ -495,9 +524,13 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
   }, [
     activeIndex,
     displaySlides.length,
+    elapsedSeconds,
+    activeDurationSec,
+    handleSeekInActiveVideo,
     handleTogglePlayPause,
     isUiVisible,
     setUiVisible,
+    triggerEphemeralFeedback,
   ]);
 
   const scrollToSlide = (targetIndex: number) => {
@@ -780,12 +813,19 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
                       video={video}
                       playing={!isPaused}
                       muted={isMuted}
-                      controls={embedConfig.isFacebook}
+                      controls={false}
                       loop={true}
                       startAtSeconds={seekStartSec}
-                      showTopBar={isUiVisible}
+                      showTopBar={false}
+                      hideCustomSeekBar={true}
                       autoRemoveOnFatalError={true}
                       onRemoveUnavailableVideo={onRemoveUnavailableVideo}
+                      onTimeUpdateSeconds={(curSec, durSec) => {
+                        setElapsedSeconds(Math.floor(curSec));
+                        if (durSec > 0) {
+                          setActiveDurationSec(Math.floor(durSec));
+                        }
+                      }}
                       className="w-full h-full"
                     />
                   </div>
@@ -847,7 +887,9 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
                   onPointerMove={handleStagePointerMove}
                   onPointerUp={handleStagePointerUp}
                   style={{ touchAction: "pan-y" }}
-                  className="absolute inset-0 z-15 cursor-pointer"
+                  className={`absolute inset-x-0 top-0 ${
+                    isUiVisible ? "bottom-12" : "bottom-0"
+                  } z-15 cursor-pointer`}
                   aria-label="Toucher pour afficher ou masquer l'interface"
                 />
 
@@ -1065,7 +1107,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
                 ============================================================== */}
             <div
               onClick={(e) => e.stopPropagation()}
-              className={`orbit-video-overlay-zone absolute left-3 sm:left-6 right-16 sm:right-20 bottom-3 sm:bottom-5 z-20 flex flex-col gap-1.5 max-w-lg transition-opacity duration-300 ${
+              className={`orbit-video-overlay-zone absolute left-3 sm:left-6 right-16 sm:right-20 bottom-12 sm:bottom-14 z-20 flex flex-col gap-1.5 max-w-lg transition-opacity duration-300 ${
                 isUiVisible
                   ? "opacity-100 pointer-events-auto"
                   : "opacity-0 pointer-events-none"
@@ -1223,13 +1265,122 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
             </div>
 
             {/* ==============================================================
+                4B. BARRE DE DÉPLACEMENT TEMPOREL PLEINE LARGEUR EN BAS (SEEK BAR)
+                Masquée automatiquement pendant la lecture quand on ne l'utilise pas
+                ============================================================== */}
+            {isActive && (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  scheduleAutoHide();
+                }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  scheduleAutoHide();
+                }}
+                className={`absolute inset-x-0 bottom-0 z-30 px-3 sm:px-6 py-2 bg-gradient-to-t from-black/95 via-black/75 to-transparent flex items-center gap-2 transition-all duration-300 ${
+                  isUiVisible
+                    ? "opacity-100 translate-y-0 pointer-events-auto"
+                    : "opacity-0 translate-y-2 pointer-events-none"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    scheduleAutoHide();
+                    const nextSec = Math.max(0, elapsedSeconds - 10);
+                    handleSeekInActiveVideo(nextSec);
+                    triggerEphemeralFeedback(
+                      `⏪ -10s (${formatSecondsToMmSs(nextSec)})`
+                    );
+                  }}
+                  className="px-2 h-6 rounded-full bg-black/65 hover:bg-white/20 border border-white/15 text-[10px] font-mono-num font-bold text-white/90 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                  title="Reculer de 10 secondes"
+                >
+                  <RotateCcw className="w-2.5 h-2.5 text-cyan-300" />
+                  <span>-10s</span>
+                </button>
+
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(60, activeDurationSec)}
+                  step={1}
+                  value={Math.min(
+                    Math.max(60, activeDurationSec),
+                    elapsedSeconds
+                  )}
+                  onPointerDown={() => {
+                    scheduleAutoHide();
+                  }}
+                  onChange={(e) => {
+                    scheduleAutoHide();
+                    const nextSec = Number(e.target.value);
+                    handleSeekInActiveVideo(nextSec);
+                  }}
+                  onPointerUp={() => {
+                    scheduleAutoHide();
+                  }}
+                  aria-label="Se déplacer dans la vidéo"
+                  title="Glisser pour se déplacer dans la vidéo"
+                  className="orbit-slider flex-1 cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #38bdf8 0%, #b4f82a ${Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        (elapsedSeconds / Math.max(60, activeDurationSec)) * 100
+                      )
+                    )}%, rgba(255, 255, 255, 0.25) ${Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        (elapsedSeconds / Math.max(60, activeDurationSec)) * 100
+                      )
+                    )}%, rgba(255, 255, 255, 0.25) 100%)`,
+                  }}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    scheduleAutoHide();
+                    const nextSec = Math.min(
+                      Math.max(60, activeDurationSec),
+                      elapsedSeconds + 10
+                    );
+                    handleSeekInActiveVideo(nextSec);
+                    triggerEphemeralFeedback(
+                      `⏩ +10s (${formatSecondsToMmSs(nextSec)})`
+                    );
+                  }}
+                  className="px-2 h-6 rounded-full bg-black/65 hover:bg-white/20 border border-white/15 text-[10px] font-mono-num font-bold text-white/90 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                  title="Avancer de 10 secondes"
+                >
+                  <span>+10s</span>
+                  <RotateCw className="w-2.5 h-2.5 text-cyan-300" />
+                </button>
+
+                <span className="text-[10px] font-mono-num font-bold text-white/90 bg-black/60 px-2 py-0.5 rounded-full border border-white/15 shrink-0">
+                  <span className="text-cyan-300">
+                    {formatSecondsToMmSs(elapsedSeconds)}
+                  </span>
+                  <span className="text-white/40 mx-0.5">/</span>
+                  <span className="text-white/70">
+                    {formatSecondsToMmSs(Math.max(60, activeDurationSec))}
+                  </span>
+                </span>
+              </div>
+            )}
+
+            {/* ==============================================================
                 5. DISCREET RIGHT-SIDE ACTION RAIL (50% OPACITY AT REST)
                 Compact icons (14px-16px) with 44x44px touch hitboxes.
                 Completely hidden when isUiVisible === false!
                 ============================================================== */}
             <div
               onClick={(e) => e.stopPropagation()}
-              className={`absolute right-2 sm:right-4 bottom-4 sm:bottom-6 z-30 flex flex-col items-center gap-1 transition-opacity duration-300 ${
+              className={`absolute right-2 sm:right-4 bottom-12 sm:bottom-14 z-30 flex flex-col items-center gap-1 transition-opacity duration-300 ${
                 isUiVisible
                   ? "opacity-100 pointer-events-auto"
                   : "opacity-0 pointer-events-none"

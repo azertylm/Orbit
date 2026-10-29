@@ -136,10 +136,23 @@ export const VideoCard: React.FC<VideoCardProps> = ({
     "Coup de cœur partagé sur mon mur !"
   );
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const [shareAnimTick, setShareAnimTick] = useState(0);
   const [shareSiteTarget, setShareSiteTarget] = useState<
     "current" | "infoperso" | "alphabette"
   >("current");
   const [imgError, setImgError] = useState(false);
+
+  const triggerShareFeedback = () => {
+    setShareAnimTick((prev) => prev + 1);
+  };
+
+  useEffect(() => {
+    if (shareAnimTick === 0) return;
+    const timer = setTimeout(() => {
+      setShareAnimTick(0);
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [shareAnimTick]);
 
   const siteBaseOrigin =
     shareSiteTarget === "infoperso"
@@ -161,6 +174,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   )}&comment=${encodeURIComponent(repostNote)}&auto_publish=1`;
 
   const handleCopySiteLink = async () => {
+    triggerShareFeedback();
     try {
       await navigator.clipboard.writeText(generatedSitePublishUrl);
       setShareLinkCopied(true);
@@ -172,6 +186,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   };
 
   const handleNativeShareSiteLink = async () => {
+    triggerShareFeedback();
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({
@@ -292,6 +307,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
 
   const handleRepostSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    triggerShareFeedback();
     onRepost(video, repostNote.trim());
     setRepostOpen(false);
   };
@@ -482,6 +498,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
               autoRemoveOnFatalError={true}
               onCloseInline={() => setInlinePlaying(false)}
               onRemoveUnavailableVideo={onRemoveUnavailableVideo}
+              onTimeUpdateSeconds={(sec) => setElapsedSeconds(Math.floor(sec))}
               className="w-full h-full"
             />
           ) : (
@@ -930,14 +947,53 @@ export const VideoCard: React.FC<VideoCardProps> = ({
             <button
               type="button"
               onClick={() => {
+                triggerShareFeedback();
                 setRepostOpen(!repostOpen);
                 setCommentsOpen(false);
               }}
-              className="inline-flex items-center gap-1.5 font-semibold cursor-pointer transition-all hover:opacity-100 opacity-80 active:scale-95 whitespace-nowrap shrink-0"
-              style={{ color: "var(--text-muted)" }}
+              className={`relative inline-flex items-center gap-1.5 font-semibold cursor-pointer transition-all hover:opacity-100 opacity-85 active:scale-95 whitespace-nowrap shrink-0 ${
+                shareAnimTick > 0 ? "orbit-share-heartbeat" : ""
+              }`}
+              style={{
+                color:
+                  repostOpen || shareAnimTick > 0
+                    ? "var(--accent-2)"
+                    : "var(--text-muted)",
+              }}
             >
-              <Repeat2 className="w-3.5 h-3.5" />
+              <Repeat2
+                className={`w-3.5 h-3.5 transition-transform duration-300 ${
+                  shareAnimTick > 0 ? "scale-110 text-cyan-300" : ""
+                }`}
+              />
               <span>Partager</span>
+              {shareAnimTick > 0 && (
+                <span
+                  key={shareAnimTick}
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-visible"
+                  aria-hidden="true"
+                >
+                  {[
+                    { tx: "-18px", ty: "-14px", color: "#38bdf8", size: "w-3 h-3" },
+                    { tx: "18px", ty: "-15px", color: "#b4f82a", size: "w-2.5 h-2.5" },
+                    { tx: "-14px", ty: "13px", color: "#fde68a", size: "w-2.5 h-2.5" },
+                    { tx: "20px", ty: "12px", color: "#38bdf8", size: "w-3 h-3" },
+                    { tx: "0px", ty: "-19px", color: "#b4f82a", size: "w-3 h-3" },
+                  ].map((sp, i) => (
+                    <Sparkles
+                      key={i}
+                      className={`orbit-share-sparkle-dot ${sp.size}`}
+                      style={
+                        {
+                          color: sp.color,
+                          "--tx": sp.tx,
+                          "--ty": sp.ty,
+                        } as React.CSSProperties
+                      }
+                    />
+                  ))}
+                </span>
+              )}
             </button>
 
             <a

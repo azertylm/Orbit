@@ -1037,7 +1037,7 @@ export default function App() {
   >(null);
   const [headerToolsOpen, setHeaderToolsOpen] = useState(false);
   const [activeSpaceDomain, setActiveSpaceDomain] = useState<string>("Tous");
-  const [heroExpanded, setHeroExpanded] = useState<boolean>(true);
+  const [heroExpanded, setHeroExpanded] = useState<boolean>(false);
 
   // Moteur Algorithmique Autonome de Découverte selon les Goûts
   const [algoAutoPilot, setAlgoAutoPilot] = useState<boolean>(() => {
@@ -5670,15 +5670,15 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-between px-3 py-1.5 rounded-xl glass-panel">
-                  <span className="text-xs font-extrabold text-white flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#b4f82a]" />
+                <div className="flex items-center justify-between px-2.5 py-1 rounded-lg glass-panel">
+                  <span className="text-[11px] font-bold text-white/85 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#b4f82a]" />
                     <span>Ton univers en orbite</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setHeroExpanded(true)}
-                    className="text-[11px] font-bold text-[#b4f82a] hover:underline cursor-pointer"
+                    className="text-[10px] font-bold text-[#b4f82a] hover:underline cursor-pointer px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-colors"
                   >
                     Afficher la bannière Orbit ▾
                   </button>

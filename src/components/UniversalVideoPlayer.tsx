@@ -7,6 +7,9 @@ import {
 import { OrbitStorageService } from "../services/storageAdapter";
 import {
   Play,
+  Pause,
+  RotateCcw,
+  RotateCw,
   ExternalLink,
   RefreshCw,
   Trash2,
@@ -54,6 +57,7 @@ export interface UniversalVideoPlayerProps {
     ratio?: "16-9" | "9-16";
     domain?: string;
     subdomain?: string;
+    durationMinutes?: number;
   };
   playing?: boolean;
   muted?: boolean;
@@ -62,11 +66,28 @@ export interface UniversalVideoPlayerProps {
   startAtSeconds?: number;
   className?: string;
   showTopBar?: boolean;
+  hideCustomSeekBar?: boolean;
   autoRemoveOnFatalError?: boolean;
   onCloseInline?: () => void;
   onReady?: () => void;
   onError?: (diagnostic: PlatformErrorDiagnostic) => void;
   onRemoveUnavailableVideo?: (videoId: number, reason?: string) => void;
+  onTimeUpdateSeconds?: (currentSec: number, durationSec: number) => void;
+}
+
+function formatPlayerTime(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds || 0));
+  const hrs = Math.floor(safe / 3600);
+  const mins = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  }
+  return `${mins.toString().padStart(2, "0")}:${secs
+    .toString()
+    .padStart(2, "0")}`;
 }
 
 const KNOWN_BROKEN_YT_IDS = new Set([
@@ -331,16 +352,18 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
   video,
   playing = true,
   muted = false,
-  controls = true,
+  controls: _controls = true,
   loop = false,
   startAtSeconds = 0,
   className = "",
   showTopBar = true,
+  hideCustomSeekBar = false,
   autoRemoveOnFatalError = false,
   onCloseInline,
   onReady,
   onError,
   onRemoveUnavailableVideo,
+  onTimeUpdateSeconds,
 }) => {
   ensureCustomPlayersRegistered();
 
@@ -456,10 +479,220 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
   const [retriedWithFallback, setRetriedWithFallback] =
     useState<boolean>(false);
 
+  // État de navigation temporelle (Seek Bar, Temps courant, Durée totale, Lecture/Pause)
+  const defaultDurationSec = useMemo(
+    () => Math.max(60, (video.durationMinutes || 4) * 60),
+    [video.durationMinutes]
+  );
+  const [currentTime, setCurrentTime] = useState<number>(startAtSeconds || 0);
+  const [duration, setDuration] = useState<number>(defaultDurationSec);
+  const [isPlayingInternal, setIsPlayingInternal] = useState<boolean>(playing);
+  const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
+  const [scrubValue, setScrubValue] = useState<number>(startAtSeconds || 0);
+  const [isControlsActive, setIsControlsActive] = useState<boolean>(false);
+
+  const initialStartRef = useRef<number>(startAtSeconds || 0);
+  const hasLiveTimeRef = useRef<boolean>(false);
+  const onTimeUpdateSecondsRef = useRef(onTimeUpdateSeconds);
+  const controlsIdleTimerRef = useRef<number | null>(null);
   const playerContainerRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const html5VideoRef = useRef<HTMLVideoElement | null>(null);
   const localMp4InputRef = useRef<HTMLInputElement | null>(null);
+
+  const wakeUpControls = useCallback(() => {
+    setIsControlsActive(true);
+    if (controlsIdleTimerRef.current) {
+      window.clearTimeout(controlsIdleTimerRef.current);
+    }
+    controlsIdleTimerRef.current = window.setTimeout(() => {
+      setIsControlsActive(false);
+    }, 2200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (controlsIdleTimerRef.current) {
+        window.clearTimeout(controlsIdleTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showControlsOverlay =
+    isControlsActive || isScrubbing || !isPlayingInternal;
+
+  useEffect(() => {
+    onTimeUpdateSecondsRef.current = onTimeUpdateSeconds;
+  }, [onTimeUpdateSeconds]);
+
+  useEffect(() => {
+    setIsPlayingInternal(playing);
+  }, [playing]);
+
+  // Synchroniser le temps courant avec le composant parent en dehors du cycle de rendu
+  useEffect(() => {
+    if (onTimeUpdateSecondsRef.current) {
+      onTimeUpdateSecondsRef.current(currentTime, duration);
+    }
+  }, [currentTime, duration]);
+
+  // Activer l'écoute temps réel YouTube IFrame API (pour recevoir currentTime et duration via infoDelivery)
+  const registerYouTubeTimeListener = useCallback(
+    (ifr: HTMLIFrameElement | null) => {
+      if (!ifr || !ifr.contentWindow) return;
+      try {
+        ifr.contentWindow.postMessage(
+          JSON.stringify({
+            event: "listening",
+            id: video.id || 1,
+            channel: "widget",
+          }),
+          "*"
+        );
+        ifr.contentWindow.postMessage(
+          JSON.stringify({
+            event: "command",
+            func: "addEventListener",
+            args: ["onStateChange"],
+          }),
+          "*"
+        );
+      } catch {
+        // Ignore cross-origin errors
+      }
+    },
+    [video.id]
+  );
+
+  // Se déplacer à une seconde précise dans la vidéo (quel que soit le moteur actif, sans recharger l'iframe)
+  const seekToSeconds = useCallback(
+    (targetSec: number) => {
+      const clamped = Math.max(
+        0,
+        Math.min(Math.max(duration, targetSec), targetSec)
+      );
+      setCurrentTime(clamped);
+      setScrubValue(clamped);
+      if (onTimeUpdateSeconds) {
+        onTimeUpdateSeconds(clamped, duration);
+      }
+
+      if (html5VideoRef.current) {
+        try {
+          html5VideoRef.current.currentTime = clamped;
+        } catch {
+          // ignore
+        }
+      }
+
+      const sendSeekToIframe = (ifr: HTMLIFrameElement | null) => {
+        if (!ifr || !ifr.contentWindow) return;
+        try {
+          ifr.contentWindow.postMessage(
+            JSON.stringify({
+              event: "command",
+              func: "seekTo",
+              args: [Math.floor(clamped), true],
+            }),
+            "*"
+          );
+        } catch {
+          // ignore
+        }
+      };
+
+      sendSeekToIframe(iframeRef.current);
+
+      if (playerContainerRef.current) {
+        playerContainerRef.current
+          .querySelectorAll("video, youtube-video, tiktok-video")
+          .forEach((el) => {
+            const mediaEl = el as HTMLVideoElement & {
+              shadowRoot?: ShadowRoot | null;
+            };
+            try {
+              if ("currentTime" in mediaEl) {
+                mediaEl.currentTime = clamped;
+              }
+            } catch {
+              // ignore
+            }
+            if (mediaEl.shadowRoot) {
+              mediaEl.shadowRoot
+                .querySelectorAll("video")
+                .forEach((innerVid) => {
+                  try {
+                    (innerVid as HTMLVideoElement).currentTime = clamped;
+                  } catch {
+                    // ignore
+                  }
+                });
+              mediaEl.shadowRoot
+                .querySelectorAll("iframe")
+                .forEach((innerIfr) =>
+                  sendSeekToIframe(innerIfr as HTMLIFrameElement)
+                );
+            }
+          });
+
+        playerContainerRef.current
+          .querySelectorAll("iframe")
+          .forEach((ifr) => sendSeekToIframe(ifr as HTMLIFrameElement));
+      }
+    },
+    [duration, onTimeUpdateSeconds]
+  );
+
+  // Basculer Lecture / Pause directement depuis la barre de progression
+  const togglePlayPauseInternal = useCallback(() => {
+    setIsPlayingInternal((prev) => {
+      const next = !prev;
+      if (html5VideoRef.current) {
+        try {
+          if (next) {
+            html5VideoRef.current.play().catch(() => {});
+          } else {
+            html5VideoRef.current.pause();
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const sendPlayStateToIframe = (ifr: HTMLIFrameElement | null) => {
+        if (!ifr || !ifr.contentWindow) return;
+        try {
+          ifr.contentWindow.postMessage(
+            JSON.stringify({
+              event: "command",
+              func: next ? "playVideo" : "pauseVideo",
+              args: [],
+            }),
+            "*"
+          );
+        } catch {
+          // ignore
+        }
+      };
+
+      sendPlayStateToIframe(iframeRef.current);
+
+      if (playerContainerRef.current) {
+        playerContainerRef.current.querySelectorAll("video").forEach((v) => {
+          try {
+            if (next) (v as HTMLVideoElement).play().catch(() => {});
+            else (v as HTMLVideoElement).pause();
+          } catch {
+            // ignore
+          }
+        });
+        playerContainerRef.current
+          .querySelectorAll("iframe")
+          .forEach((ifr) => sendPlayStateToIframe(ifr as HTMLIFrameElement));
+      }
+      return next;
+    });
+  }, []);
 
   // Garantir que le son est immédiatement actif (volume 100%, non-muet) dès le lancement de la lecture
   const enforceAudioUnmuted = useCallback(() => {
@@ -615,7 +848,7 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     setIsReady(true);
   };
 
-  // URL cible passée à ReactPlayer
+  // URL cible passée à ReactPlayer (stable pour permettre le seek fluide sans recharger le composant)
   const reactPlayerSrc = useMemo(() => {
     if (
       (detectedPlatform === "facebook" ||
@@ -629,8 +862,9 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
         : resolvedCanonicalUrl || rawUrl;
     }
     if (validYoutubeId) {
+      const initSec = initialStartRef.current;
       return `https://www.youtube.com/watch?v=${validYoutubeId}${
-        startAtSeconds > 0 ? `&t=${startAtSeconds}s` : ""
+        initSec > 0 ? `&t=${initSec}s` : ""
       }`;
     }
     return rawUrl || "https://www.youtube.com/watch?v=aircAruvnKk";
@@ -640,10 +874,9 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     resolvedCanonicalUrl,
     hasRealNativeSocialUrl,
     validYoutubeId,
-    startAtSeconds,
   ]);
 
-  // URL d'intégration iframe directe (Mode Compatibilité / NoCookie / Plugin natif)
+  // URL d'intégration iframe directe (stable pour permettre le seek via postMessage sans recharger l'iframe)
   const nativeIframeSrc = useMemo(() => {
     if (detectedPlatform === "facebook" && hasRealNativeSocialUrl) {
       const cleanFb = normalizeFacebookUrl(resolvedCanonicalUrl || rawUrl);
@@ -666,12 +899,11 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
       }
     }
     const ytTarget = validYoutubeId || "aircAruvnKk";
-    return `https://www.youtube-nocookie.com/embed/${ytTarget}?autoplay=${
-      playing ? 1 : 0
-    }&mute=${
+    const initSec = initialStartRef.current;
+    return `https://www.youtube-nocookie.com/embed/${ytTarget}?autoplay=1&mute=${
       muted ? 1 : 0
-    }&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${
-      startAtSeconds > 0 ? `&start=${startAtSeconds}` : ""
+    }&controls=0&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${
+      initSec > 0 ? `&start=${initSec}` : ""
     }${loop ? `&loop=1&playlist=${ytTarget}` : ""}`;
   }, [
     detectedPlatform,
@@ -679,9 +911,7 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     resolvedCanonicalUrl,
     hasRealNativeSocialUrl,
     validYoutubeId,
-    playing,
     muted,
-    startAtSeconds,
     loop,
   ]);
 
@@ -698,11 +928,37 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
 
   // Réinitialiser l'état lors du changement de vidéo
   useEffect(() => {
+    initialStartRef.current = startAtSeconds || 0;
+    hasLiveTimeRef.current = false;
     setIsReady(false);
     setErrorDiagnostic(null);
     setRetriedWithFallback(false);
     setEngineMode(initialEngineMode);
-  }, [video.id, rawUrl, video.youtubeId, initialEngineMode]);
+    setCurrentTime(startAtSeconds || 0);
+    setScrubValue(startAtSeconds || 0);
+    setDuration(Math.max(60, (video.durationMinutes || 4) * 60));
+  }, [video.id, rawUrl, video.youtubeId, initialEngineMode, video.durationMinutes]);
+
+  // Si le parent demande un saut temporel (ex: clic sur un Moment Fort), se déplacer dans la vidéo sans recharger
+  useEffect(() => {
+    if (startAtSeconds > 0 && Math.abs(startAtSeconds - currentTime) > 1.5) {
+      seekToSeconds(startAtSeconds);
+    }
+  }, [startAtSeconds]);
+
+  // Compteur de progression de secours (1s) lorsque le lecteur embarqué n'émet pas d'événements timeupdate natifs
+  useEffect(() => {
+    if (!isPlayingInternal || isScrubbing) return;
+    const timer = window.setInterval(() => {
+      if (hasLiveTimeRef.current && engineMode === "mp4-direct") return;
+      setCurrentTime((prev) => {
+        const next = prev + 1;
+        const maxDur = Math.max(60, duration);
+        return next >= maxDur ? (loop ? 0 : maxDur) : next;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isPlayingInternal, isScrubbing, engineMode, duration, loop]);
 
   // Gestionnaire centralisé d'erreur par plateforme
   const handleTriggerPlatformError = useCallback(
@@ -761,12 +1017,37 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     ]
   );
 
-  // Écoute des événements postMessage et orbit-yt-player-error YouTube IFrame API (codes 100, 101, 150)
+  // Écoute des événements postMessage (infoDelivery pour temps/durée + onError codes 100, 101, 150)
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (typeof event.data !== "string") return;
       try {
         const parsed = JSON.parse(event.data);
+        if (parsed && parsed.event === "infoDelivery" && parsed.info) {
+          if (
+            typeof parsed.info.duration === "number" &&
+            parsed.info.duration > 0
+          ) {
+            setDuration(parsed.info.duration);
+          }
+          if (typeof parsed.info.currentTime === "number") {
+            hasLiveTimeRef.current = true;
+            if (!isScrubbing) {
+              setCurrentTime(parsed.info.currentTime);
+              setScrubValue(parsed.info.currentTime);
+              if (onTimeUpdateSeconds) {
+                onTimeUpdateSeconds(
+                  parsed.info.currentTime,
+                  parsed.info.duration || duration
+                );
+              }
+            }
+          }
+          if (typeof parsed.info.playerState === "number") {
+            if (parsed.info.playerState === 1) setIsPlayingInternal(true);
+            else if (parsed.info.playerState === 2) setIsPlayingInternal(false);
+          }
+        }
         if (parsed && parsed.event === "onError" && parsed.info) {
           const errCode = String(parsed.info);
           if (
@@ -795,7 +1076,7 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
       window.removeEventListener("message", handleMessage);
       window.removeEventListener("orbit-yt-player-error", handleCustomYtError);
     };
-  }, [handleTriggerPlatformError]);
+  }, [handleTriggerPlatformError, isScrubbing, duration, onTimeUpdateSeconds]);
 
   // Vérification proactive de disponibilité YouTube (miniature 120px = vidéo supprimée)
   useEffect(() => {
@@ -864,6 +1145,18 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
   return (
     <div
       ref={playerContainerRef}
+      onMouseMove={wakeUpControls}
+      onMouseEnter={wakeUpControls}
+      onPointerDown={wakeUpControls}
+      onTouchStart={wakeUpControls}
+      onMouseLeave={() => {
+        if (!isScrubbing && isPlayingInternal) {
+          if (controlsIdleTimerRef.current) {
+            window.clearTimeout(controlsIdleTimerRef.current);
+          }
+          setIsControlsActive(false);
+        }
+      }}
       className={`relative w-full h-full bg-black overflow-hidden select-none flex flex-col ${className}`}
     >
       {/* Input caché permettant d'importer un fichier .MP4 téléchargé directement dans ce post */}
@@ -876,13 +1169,17 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
       />
 
       {/* =====================================================================
-          ZONE VIDÉO PRINCIPALE (SANS AUCUNE SUPERPOSITION EN HAUT)
+          ZONE VIDÉO PRINCIPALE PLEIN CADRE (SANS SUPERPOSITION PERMANENTE)
           ===================================================================== */}
-      <div className="relative flex-1 min-h-0 w-full bg-black">
-        {/* Badge compact sur le côté gauche en bas de la vidéo */}
-        {showTopBar && (
+      <div className="relative flex-1 min-h-0 w-full h-full bg-black">
+        {/* Badge compact en haut à gauche, masqué automatiquement pendant la lecture */}
+        {showTopBar && !hideCustomSeekBar && (
           <div
-            className="absolute bottom-11 left-2.5 z-30 flex items-center gap-1.5 pointer-events-auto"
+            className={`absolute top-2.5 left-2.5 z-30 flex items-center gap-1.5 transition-opacity duration-300 ${
+              showControlsOverlay
+                ? "opacity-100 pointer-events-auto"
+                : "opacity-0 pointer-events-none"
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             <span
@@ -911,6 +1208,17 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
               </button>
             )}
           </div>
+        )}
+
+        {/* Zone capteuse discrète en bas de l'écran pour réveiller la barre de progression au survol ou au toucher */}
+        {!hideCustomSeekBar && !showControlsOverlay && !errorDiagnostic && (
+          <div
+            onMouseEnter={wakeUpControls}
+            onMouseMove={wakeUpControls}
+            onPointerDown={wakeUpControls}
+            onTouchStart={wakeUpControls}
+            className="absolute inset-x-0 bottom-0 h-10 z-25"
+          />
         )}
 
         {/* ÉTAT D'ERREUR DE LECTURE PAR PLATEFORME (DIAGNOSTIC + SOLUTIONS MP4) */}
@@ -993,8 +1301,14 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
             </div>
           </div>
         ) : engineMode === "mp4-direct" ? (
-          /* MOTEUR 0 : HTML5 VIDEO NATIF */
-          <div className="relative w-full h-full bg-black flex items-center justify-center">
+          /* MOTEUR 0 : HTML5 VIDEO NATIF (sans barre native doublon) */
+          <div
+            className="relative w-full h-full bg-black flex items-center justify-center cursor-pointer"
+            onClick={() => {
+              wakeUpControls();
+              togglePlayPauseInternal();
+            }}
+          >
             <video
               ref={html5VideoRef}
               key={`mp4-${video.id || rawUrl}-${effectiveMp4Src}`}
@@ -1002,13 +1316,52 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
               poster={resolvedCover}
               autoPlay={playing}
               muted={muted}
-              controls={controls}
+              controls={false}
               loop={loop}
               playsInline
               onLoadedMetadata={(e) => {
+                if (
+                  e.currentTarget.duration &&
+                  Number.isFinite(e.currentTarget.duration) &&
+                  e.currentTarget.duration > 0
+                ) {
+                  setDuration(e.currentTarget.duration);
+                }
+                if (initialStartRef.current > 0) {
+                  try {
+                    e.currentTarget.currentTime = initialStartRef.current;
+                  } catch {
+                    // ignore
+                  }
+                }
                 if (!muted) {
                   e.currentTarget.muted = false;
                   e.currentTarget.volume = 1.0;
+                }
+              }}
+              onDurationChange={(e) => {
+                if (
+                  e.currentTarget.duration &&
+                  Number.isFinite(e.currentTarget.duration) &&
+                  e.currentTarget.duration > 0
+                ) {
+                  setDuration(e.currentTarget.duration);
+                }
+              }}
+              onTimeUpdate={(e) => {
+                hasLiveTimeRef.current = true;
+                const ct = e.currentTarget.currentTime;
+                const dur =
+                  e.currentTarget.duration &&
+                  Number.isFinite(e.currentTarget.duration)
+                    ? e.currentTarget.duration
+                    : duration;
+                if (!isScrubbing) {
+                  setCurrentTime(ct);
+                  setScrubValue(ct);
+                }
+                if (onTimeUpdateSeconds) {
+                  onTimeUpdateSeconds(ct, dur);
                 }
               }}
               onLoadedData={(e) => {
@@ -1029,11 +1382,15 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
                 enforceAudioUnmuted();
               }}
               onPlay={(e) => {
+                setIsPlayingInternal(true);
                 if (!muted) {
                   e.currentTarget.muted = false;
                   e.currentTarget.volume = 1.0;
                 }
                 enforceAudioUnmuted();
+              }}
+              onPause={() => {
+                setIsPlayingInternal(false);
               }}
               onError={() => {
                 if (
@@ -1060,12 +1417,12 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
             )}
 
             <ReactPlayer
-              key={`rp-${video.id || rawUrl}-${reactPlayerSrc}-${startAtSeconds}`}
+              key={`rp-${video.id || rawUrl}-${reactPlayerSrc}`}
               src={reactPlayerSrc}
-              playing={playing}
+              playing={isPlayingInternal}
               muted={muted}
               volume={1}
-              controls={controls}
+              controls={false}
               loop={loop}
               playsInline
               width="100%"
@@ -1075,7 +1432,10 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
                 youtube: {
                   rel: 0,
                   hl: "fr",
-                  start: startAtSeconds > 0 ? startAtSeconds : undefined,
+                  start:
+                    initialStartRef.current > 0
+                      ? initialStartRef.current
+                      : undefined,
                 },
               }}
               onReady={() => {
@@ -1088,8 +1448,12 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
                 enforceAudioUnmuted();
               }}
               onPlay={() => {
+                setIsPlayingInternal(true);
                 setIsReady(true);
                 enforceAudioUnmuted();
+              }}
+              onPause={() => {
+                setIsPlayingInternal(false);
               }}
               onError={() => {
                 handleTriggerPlatformError("PLAYER_LOAD_ERROR");
@@ -1100,14 +1464,14 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
           /* MOTEUR 2 : IFRAME NATIF / NOCOOKIE */
           <iframe
             ref={iframeRef}
-            key={`iframe-${video.id || rawUrl}-${engineMode}-${startAtSeconds}`}
+            key={`iframe-${video.id || rawUrl}-${engineMode}`}
             width="100%"
             height="100%"
             src={
               engineMode === "fallback-stream" && validYoutubeId
                 ? `https://www.youtube-nocookie.com/embed/${validYoutubeId}?autoplay=1&mute=${
                     muted ? 1 : 0
-                  }&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`
+                  }&controls=0&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`
                 : nativeIframeSrc
             }
             title={video.title}
@@ -1117,6 +1481,11 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
             onLoad={() => {
               setIsReady(true);
               enforceAudioUnmuted();
+              registerYouTubeTimeListener(iframeRef.current);
+              window.setTimeout(
+                () => registerYouTubeTimeListener(iframeRef.current),
+                600
+              );
               if (onReady) onReady();
             }}
             onError={() => {
@@ -1125,124 +1494,268 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
             className="w-full h-full bg-black border-0"
           />
         )}
-      </div>
 
-      {/* =====================================================================
-          BARRE D'OUTILS AU-DESSOUS DE LA VIDÉO (MOTEUR, MP4, LIEN EXTERNE)
-          ===================================================================== */}
-      {showTopBar && (
-        <div
-          className="w-full px-2.5 py-1.5 bg-[#090c15] border-t border-white/10 flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar shrink-0 z-30"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                setErrorDiagnostic(null);
-                setEngineMode((prev) =>
-                  prev === "mp4-direct"
-                    ? "react-player"
-                    : prev === "react-player"
-                    ? "native-iframe"
-                    : prev === "native-iframe" && validYoutubeId
-                    ? "fallback-stream"
-                    : "mp4-direct"
-                );
-              }}
-              className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/15 border border-white/15 text-[10px] font-bold text-white/90 inline-flex items-center gap-1 cursor-pointer transition-all shrink-0"
-              title="Changer de moteur de lecture (Lecteur MP4 Direct / ReactPlayer / Embed Natif)"
-            >
-              <Layers className="w-3 h-3 text-cyan-300" />
-              <span>
-                {engineMode === "mp4-direct"
-                  ? "MP4 Direct"
-                  : engineMode === "react-player"
-                  ? "ReactPlayer"
-                  : engineMode === "native-iframe"
-                  ? "Embed Natif"
-                  : "Flux Miroir HD"}
+        {/* ===================================================================
+            OVERLAY BAS AUTO-MASQUÉ (SEEK BAR UNIQUE + BARRE D'OUTILS)
+            Masqué automatiquement pendant la lecture quand on ne l'utilise pas
+            =================================================================== */}
+        {!hideCustomSeekBar && !errorDiagnostic && (
+          <div
+            className={`absolute inset-x-0 bottom-0 z-30 flex flex-col transition-all duration-300 ${
+              showControlsOverlay
+                ? "opacity-100 translate-y-0 pointer-events-auto"
+                : "opacity-0 translate-y-2 pointer-events-none"
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              wakeUpControls();
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              wakeUpControls();
+            }}
+          >
+            {/* Barre de navigation temporelle unique (-10s / Curseur / +10s / Temps) */}
+            <div className="w-full px-2.5 py-1.5 bg-gradient-to-t from-[#060911]/95 via-[#060911]/90 to-black/40 backdrop-blur-md border-t border-white/10 flex items-center gap-2">
+              {/* Bouton Lecture / Pause */}
+              <button
+                type="button"
+                onClick={togglePlayPauseInternal}
+                className="w-6 h-6 rounded-md bg-white/[0.08] hover:bg-white/15 border border-white/15 flex items-center justify-center text-white cursor-pointer shrink-0 transition-colors"
+                title={
+                  isPlayingInternal
+                    ? "Mettre en pause"
+                    : "Reprendre la lecture"
+                }
+              >
+                {isPlayingInternal ? (
+                  <Pause className="w-3 h-3" />
+                ) : (
+                  <Play className="w-3 h-3 fill-current ml-0.5" />
+                )}
+              </button>
+
+              {/* Reculer de 10 secondes (-10s) */}
+              <button
+                type="button"
+                onClick={() => {
+                  wakeUpControls();
+                  seekToSeconds(Math.max(0, currentTime - 10));
+                }}
+                className="px-1.5 h-6 rounded-md bg-white/[0.06] hover:bg-white/15 border border-white/10 text-[10px] font-mono-num font-bold text-white/85 hover:text-white inline-flex items-center gap-0.5 cursor-pointer shrink-0 transition-colors"
+                title="Reculer de 10 secondes (-10s)"
+              >
+                <RotateCcw className="w-2.5 h-2.5 text-cyan-300" />
+                <span>-10s</span>
+              </button>
+
+              {/* Curseur interactif de déplacement dans la vidéo */}
+              <div className="relative flex-1 flex items-center min-w-[80px]">
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(1, Math.floor(duration))}
+                  step={1}
+                  value={Math.min(
+                    Math.max(1, Math.floor(duration)),
+                    Math.floor(isScrubbing ? scrubValue : currentTime)
+                  )}
+                  onPointerDown={() => {
+                    wakeUpControls();
+                    setIsScrubbing(true);
+                    setScrubValue(currentTime);
+                  }}
+                  onChange={(e) => {
+                    wakeUpControls();
+                    const nextSec = Number(e.target.value);
+                    setScrubValue(nextSec);
+                    seekToSeconds(nextSec);
+                  }}
+                  onPointerUp={(e) => {
+                    const nextSec = Number(
+                      (e.currentTarget as HTMLInputElement).value
+                    );
+                    setIsScrubbing(false);
+                    seekToSeconds(nextSec);
+                    wakeUpControls();
+                  }}
+                  onKeyDown={(e) => {
+                    wakeUpControls();
+                    if (e.key === "ArrowLeft") {
+                      e.preventDefault();
+                      seekToSeconds(Math.max(0, currentTime - 5));
+                    } else if (e.key === "ArrowRight") {
+                      e.preventDefault();
+                      seekToSeconds(Math.min(duration, currentTime + 5));
+                    }
+                  }}
+                  aria-label="Se déplacer dans la vidéo"
+                  title="Glisser pour avancer ou reculer dans la vidéo"
+                  className="orbit-slider w-full cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #38bdf8 0%, #b4f82a ${Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        ((isScrubbing ? scrubValue : currentTime) /
+                          Math.max(1, duration)) *
+                          100
+                      )
+                    )}%, rgba(148, 163, 184, 0.28) ${Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        ((isScrubbing ? scrubValue : currentTime) /
+                          Math.max(1, duration)) *
+                          100
+                      )
+                    )}%, rgba(148, 163, 184, 0.28) 100%)`,
+                  }}
+                />
+              </div>
+
+              {/* Avancer de 10 secondes (+10s) */}
+              <button
+                type="button"
+                onClick={() => {
+                  wakeUpControls();
+                  seekToSeconds(Math.min(duration, currentTime + 10));
+                }}
+                className="px-1.5 h-6 rounded-md bg-white/[0.06] hover:bg-white/15 border border-white/10 text-[10px] font-mono-num font-bold text-white/85 hover:text-white inline-flex items-center gap-0.5 cursor-pointer shrink-0 transition-colors"
+                title="Avancer de 10 secondes (+10s)"
+              >
+                <span>+10s</span>
+                <RotateCw className="w-2.5 h-2.5 text-cyan-300" />
+              </button>
+
+              {/* Affichage Temps écoulé / Durée totale */}
+              <span className="text-[10px] font-mono-num font-bold text-white/85 whitespace-nowrap shrink-0">
+                <span className="text-cyan-300">
+                  {formatPlayerTime(isScrubbing ? scrubValue : currentTime)}
+                </span>
+                <span className="text-white/40 mx-0.5">/</span>
+                <span className="text-white/65">
+                  {formatPlayerTime(duration)}
+                </span>
               </span>
-            </button>
+            </div>
 
-            {(detectedPlatform === "facebook" ||
-              detectedPlatform === "tiktok" ||
-              detectedPlatform === "instagram" ||
-              engineMode === "mp4-direct") && (
-              <>
-                {engineMode !== "mp4-direct" && (
+            {/* Barre d'outils moteur/MP4 également masquée quand on ne l'utilise pas */}
+            {showTopBar && (
+              <div className="w-full px-2.5 py-1 bg-[#090c15]/95 border-t border-white/10 flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
                     onClick={() => {
+                      wakeUpControls();
                       setErrorDiagnostic(null);
-                      setEngineMode("mp4-direct");
+                      setEngineMode((prev) =>
+                        prev === "mp4-direct"
+                          ? "react-player"
+                          : prev === "react-player"
+                          ? "native-iframe"
+                          : prev === "native-iframe" && validYoutubeId
+                          ? "fallback-stream"
+                          : "mp4-direct"
+                      );
                     }}
-                    className="px-2 py-0.5 rounded-md bg-emerald-600/90 hover:bg-emerald-500 border border-emerald-300/50 text-[10px] font-extrabold text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
-                    title="Contourner le blocage d'intégration Facebook/Instagram en lisant le flux MP4 direct"
+                    className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/15 border border-white/15 text-[10px] font-bold text-white/90 inline-flex items-center gap-1 cursor-pointer transition-all shrink-0"
+                    title="Changer de moteur de lecture (Lecteur MP4 Direct / ReactPlayer / Embed Natif)"
                   >
-                    <Play className="w-2.5 h-2.5 fill-current" />
+                    <Layers className="w-3 h-3 text-cyan-300" />
                     <span>
-                      {isExtractingMp4 ? "Extraction..." : "Lire en MP4"}
+                      {engineMode === "mp4-direct"
+                        ? "MP4 Direct"
+                        : engineMode === "react-player"
+                        ? "ReactPlayer"
+                        : engineMode === "native-iframe"
+                        ? "Embed Natif"
+                        : "Flux Miroir HD"}
                     </span>
                   </button>
-                )}
 
-                <a
-                  href={downloadMp4Href}
-                  download={`orbit-${detectedPlatform}-${
-                    video.id || "video"
-                  }.mp4`}
-                  className="px-2 py-0.5 rounded-md bg-cyan-500/90 hover:bg-cyan-400 text-[10px] font-extrabold text-black inline-flex items-center gap-1 cursor-pointer shrink-0"
-                  title="Télécharger la vidéo en fichier .MP4 sur votre appareil"
-                >
-                  <Download className="w-2.5 h-2.5" />
-                  <span>Télécharger MP4</span>
-                </a>
+                  {(detectedPlatform === "facebook" ||
+                    detectedPlatform === "tiktok" ||
+                    detectedPlatform === "instagram" ||
+                    engineMode === "mp4-direct") && (
+                    <>
+                      {engineMode !== "mp4-direct" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            wakeUpControls();
+                            setErrorDiagnostic(null);
+                            setEngineMode("mp4-direct");
+                          }}
+                          className="px-2 py-0.5 rounded-md bg-emerald-600/90 hover:bg-emerald-500 border border-emerald-300/50 text-[10px] font-extrabold text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
+                          title="Contourner le blocage d'intégration Facebook/Instagram en lisant le flux MP4 direct"
+                        >
+                          <Play className="w-2.5 h-2.5 fill-current" />
+                          <span>
+                            {isExtractingMp4 ? "Extraction..." : "Lire en MP4"}
+                          </span>
+                        </button>
+                      )}
 
-                <button
-                  type="button"
-                  onClick={() => localMp4InputRef.current?.click()}
-                  className="px-2 py-0.5 rounded-md bg-purple-600/90 hover:bg-purple-500 border border-purple-300/40 text-[10px] font-extrabold text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
-                  title="Associer un fichier .MP4 téléchargé depuis votre appareil pour ce post"
-                >
-                  <Upload className="w-2.5 h-2.5" />
-                  <span>Importer .MP4</span>
-                </button>
-              </>
+                      <a
+                        href={downloadMp4Href}
+                        download={`orbit-${detectedPlatform}-${
+                          video.id || "video"
+                        }.mp4`}
+                        className="px-2 py-0.5 rounded-md bg-cyan-500/90 hover:bg-cyan-400 text-[10px] font-extrabold text-black inline-flex items-center gap-1 cursor-pointer shrink-0"
+                        title="Télécharger la vidéo en fichier .MP4 sur votre appareil"
+                      >
+                        <Download className="w-2.5 h-2.5" />
+                        <span>Télécharger MP4</span>
+                      </a>
+
+                      <button
+                        type="button"
+                        onClick={() => localMp4InputRef.current?.click()}
+                        className="px-2 py-0.5 rounded-md bg-purple-600/90 hover:bg-purple-500 border border-purple-300/40 text-[10px] font-extrabold text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
+                        title="Associer un fichier .MP4 téléchargé depuis votre appareil pour ce post"
+                      >
+                        <Upload className="w-2.5 h-2.5" />
+                        <span>Importer .MP4</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <a
+                    href={externalSourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/15 border border-white/15 text-[10px] font-bold text-cyan-300 inline-flex items-center gap-1 transition-all shrink-0"
+                    title="Ouvrir directement sur la plateforme d'origine dans un nouvel onglet"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>{embedConfig.externalActionLabel}</span>
+                  </a>
+
+                  {onRemoveUnavailableVideo && video.id && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onRemoveUnavailableVideo(
+                          video.id!,
+                          `Vidéo ${detectedPlatform.toUpperCase()} signalée indisponible et supprimée`
+                        )
+                      }
+                      className="px-2 py-0.5 rounded-md bg-rose-950/90 hover:bg-rose-900 border border-rose-400/40 text-[10px] font-bold text-rose-200 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                      title="Supprimer immédiatement ce post si la vidéo est indisponible"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Supprimer</span>
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            <a
-              href={externalSourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/15 border border-white/15 text-[10px] font-bold text-cyan-300 inline-flex items-center gap-1 transition-all shrink-0"
-              title="Ouvrir directement sur la plateforme d'origine dans un nouvel onglet"
-            >
-              <ExternalLink className="w-3 h-3" />
-              <span>{embedConfig.externalActionLabel}</span>
-            </a>
-
-            {onRemoveUnavailableVideo && video.id && (
-              <button
-                type="button"
-                onClick={() =>
-                  onRemoveUnavailableVideo(
-                    video.id!,
-                    `Vidéo ${detectedPlatform.toUpperCase()} signalée indisponible et supprimée`
-                  )
-                }
-                className="px-2 py-0.5 rounded-md bg-rose-950/90 hover:bg-rose-900 border border-rose-400/40 text-[10px] font-bold text-rose-200 inline-flex items-center gap-1 cursor-pointer shrink-0"
-                title="Supprimer immédiatement ce post si la vidéo est indisponible"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>Supprimer</span>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
