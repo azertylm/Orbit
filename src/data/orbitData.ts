@@ -146,6 +146,8 @@ export interface OrbitVideo {
   youtubeId: string;
   rawUrl: string;
   thumb: string;
+  mp4Url?: string;
+  hasLocalMp4Blob?: boolean;
   commentsList: VideoComment[];
   // Idée 3 : Badge d'Éclaireur (premiers curateurs)
   isScout?: boolean;
@@ -177,6 +179,11 @@ export interface OrbitVideo {
   highlightMoments?: VideoHighlightMoment[];
   reactionCounts?: Partial<Record<ReactionType | string, number>>;
   sourceConnectorId?: string;
+  // Système Algorithmique Autonome de Découverte selon les Goûts
+  algoDiscovered?: boolean;
+  algoAffinityMatch?: number;
+  algoReason?: string;
+  algoQueryUsed?: string;
 }
 
 export interface SocialConnector {

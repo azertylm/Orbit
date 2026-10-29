@@ -8,6 +8,7 @@ import {
   getVideoEmbedConfig,
   createPlatformCoverSvg,
 } from "../data/orbitData";
+import { UniversalVideoPlayer } from "./UniversalVideoPlayer";
 import {
   Play,
   MessageSquare,
@@ -31,6 +32,9 @@ import {
   BookOpen,
   Eye,
   Trash2,
+  Link2,
+  Copy,
+  Share2,
 } from "lucide-react";
 
 interface FloatingParticleInstance {
@@ -131,24 +135,88 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   const [repostNote, setRepostNote] = useState(
     "Coup de cœur partagé sur mon mur !"
   );
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const [shareSiteTarget, setShareSiteTarget] = useState<
+    "current" | "infoperso" | "alphabette"
+  >("current");
   const [imgError, setImgError] = useState(false);
 
+  const siteBaseOrigin =
+    shareSiteTarget === "infoperso"
+      ? "https://infoperso.fr"
+      : shareSiteTarget === "alphabette"
+      ? "https://alphabette.fr"
+      : typeof window !== "undefined"
+      ? window.location.origin
+      : "https://infoperso.fr";
+
+  const generatedSitePublishUrl = `${siteBaseOrigin}/?shared_url=${encodeURIComponent(
+    video.rawUrl
+  )}&shared_title=${encodeURIComponent(
+    video.title
+  )}&domain=${encodeURIComponent(
+    video.domain
+  )}&subdomain=${encodeURIComponent(
+    video.subdomain
+  )}&comment=${encodeURIComponent(repostNote)}&auto_publish=1`;
+
+  const handleCopySiteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedSitePublishUrl);
+      setShareLinkCopied(true);
+      setTimeout(() => setShareLinkCopied(false), 2500);
+    } catch {
+      setShareLinkCopied(true);
+      setTimeout(() => setShareLinkCopied(false), 2500);
+    }
+  };
+
+  const handleNativeShareSiteLink = async () => {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: video.title,
+          text: `${video.title} — ${repostNote}`,
+          url: generatedSitePublishUrl,
+        });
+        return;
+      } catch {
+        // Fallback copy
+      }
+    }
+    handleCopySiteLink();
+  };
+
   // Inline playback & live timestamp tracker for Feature 18 (Floating Reactions)
-  // Auto-open inline player for user-shared Facebook videos so they appear immediately integrated on Ma Page
-  const isCustomFacebookVideo =
-    video.id >= 3000 &&
-    (video.platform === "facebook" ||
-      (video.rawUrl || "").toLowerCase().includes("facebook.com") ||
-      (video.rawUrl || "").toLowerCase().includes("fb.watch") ||
-      (video.rawUrl || "").toLowerCase().includes("fb.com"));
-  const [inlinePlaying, setInlinePlaying] = useState<boolean>(
-    isCustomFacebookVideo
-  );
+  // Toujours démarrer en mode vignette (false) pour éviter que plusieurs vidéos ne se lancent en même temps
+  const [inlinePlaying, setInlinePlaying] = useState<boolean>(false);
   const [startAtSeconds, setStartAtSeconds] = useState<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(42);
   const [floatingParticles, setFloatingParticles] = useState<
     FloatingParticleInstance[]
   >([]);
+
+  // Garantir qu'une seule vidéo joue à la fois sur toute la page
+  useEffect(() => {
+    const handleOtherVideoPlay = (e: Event) => {
+      const customEv = e as CustomEvent<{ videoId?: number }>;
+      if (customEv.detail?.videoId !== video.id) {
+        setInlinePlaying(false);
+      }
+    };
+    const handleStopAll = () => {
+      setInlinePlaying(false);
+    };
+    window.addEventListener("orbit:inline-video-play", handleOtherVideoPlay);
+    window.addEventListener("orbit:stop-all-inline-videos", handleStopAll);
+    return () => {
+      window.removeEventListener(
+        "orbit:inline-video-play",
+        handleOtherVideoPlay
+      );
+      window.removeEventListener("orbit:stop-all-inline-videos", handleStopAll);
+    };
+  }, [video.id]);
 
   useEffect(() => {
     if (!inlinePlaying) return;
@@ -159,6 +227,11 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   }, [inlinePlaying]);
 
   const handleStartInlinePlay = (seekSec = 0) => {
+    window.dispatchEvent(
+      new CustomEvent("orbit:inline-video-play", {
+        detail: { videoId: video.id },
+      })
+    );
     setStartAtSeconds(seekSec);
     setElapsedSeconds(seekSec > 0 ? seekSec : 12);
     setInlinePlaying(true);
@@ -268,7 +341,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   }, [video.commentsList]);
 
   const ratioClass =
-    video.ratio === "9-16" ? "aspect-[9/12] max-h-[340px]" : "aspect-video";
+    video.ratio === "9-16" ? "aspect-[9/12] max-h-[270px]" : "aspect-video";
 
   return (
     <article
@@ -279,12 +352,12 @@ export const VideoCard: React.FC<VideoCardProps> = ({
     >
       {/* Header */}
       <div
-        className="flex items-center justify-between px-4 py-3.5"
+        className="flex items-center justify-between px-3 py-2"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs text-white shrink-0"
+            className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-[11px] text-white shrink-0"
             style={{
               background:
                 "linear-gradient(135deg, var(--accent), var(--accent-2))",
@@ -398,76 +471,19 @@ export const VideoCard: React.FC<VideoCardProps> = ({
             (!video.thumb || video.thumb.includes("aircAruvnKk"))
               ? createPlatformCoverSvg("facebook", video.title, video.rawUrl)
               : video.thumb;
-          const iframeSrc =
-            !embedConfig.isFacebook &&
-            embedConfig.detectedPlatform === "youtube"
-              ? `${embedConfig.embedUrl}&enablejsapi=1${
-                  startAtSeconds > 0 ? `&start=${startAtSeconds}` : ""
-                }`
-              : embedConfig.embedUrl;
-
           return inlinePlaying ? (
-            <div className="relative w-full h-full bg-black">
-              <iframe
-                key={`${video.id}-${startAtSeconds}-${embedConfig.detectedPlatform}`}
-                width="100%"
-                height="100%"
-                src={iframeSrc}
-                title={video.title}
-                frameBorder="0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-                onError={() => {
-                  if (onRemoveUnavailableVideo) {
-                    onRemoveUnavailableVideo(
-                      video.id,
-                      "Lecteur vidéo impossible à charger"
-                    );
-                  }
-                }}
-                className="w-full h-full"
-              />
-              <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-1.5 flex-wrap">
-                <a
-                  href={
-                    video.rawUrl && video.rawUrl.startsWith("http")
-                      ? video.rawUrl
-                      : `https://www.youtube.com/watch?v=${video.youtubeId}`
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1 rounded-full bg-black/85 hover:bg-black/95 border border-white/25 text-[10px] font-bold text-cyan-300 inline-flex items-center gap-1 backdrop-blur-md transition-all"
-                  title="Ouvrir directement sur la plateforme d'origine"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  <span>{embedConfig.externalActionLabel}</span>
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setInlinePlaying(false)}
-                  className="px-2 py-1 rounded-full bg-black/85 hover:bg-black/95 border border-white/25 text-[10px] font-bold text-white/90 cursor-pointer backdrop-blur-md"
-                  title="Revenir à l'aperçu vignette"
-                >
-                  Vignette
-                </button>
-                {onRemoveUnavailableVideo && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onRemoveUnavailableVideo(
-                        video.id,
-                        "Vidéo indisponible supprimée"
-                      )
-                    }
-                    className="px-2 py-1 rounded-full bg-rose-950/90 hover:bg-rose-900 border border-rose-400/40 text-[10px] font-bold text-rose-200 inline-flex items-center gap-1 cursor-pointer backdrop-blur-md"
-                    title="Supprimer immédiatement ce post si la vidéo est indisponible"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    <span>Indisponible ? Supprimer</span>
-                  </button>
-                )}
-              </div>
-            </div>
+            <UniversalVideoPlayer
+              video={video}
+              playing={true}
+              muted={false}
+              controls={true}
+              startAtSeconds={startAtSeconds}
+              showTopBar={true}
+              autoRemoveOnFatalError={true}
+              onCloseInline={() => setInlinePlaying(false)}
+              onRemoveUnavailableVideo={onRemoveUnavailableVideo}
+              className="w-full h-full"
+            />
           ) : (
             <div
               className="w-full h-full cursor-pointer"
@@ -557,108 +573,89 @@ export const VideoCard: React.FC<VideoCardProps> = ({
           ))}
         </div>
 
-        {/* Idée 11 : Badge Visuel 'Archive Certifiée' (Panthéon Historique) */}
-        {(archiveActiveLabel || video.certifiedArchive) &&
-          archiveActiveLabel &&
-          !inlinePlaying && (
-            <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
-              <div
-                className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-wider inline-flex items-center gap-1 text-amber-200 orbit-video-text-shadow"
-                style={{
-                  background: "rgba(15, 11, 4, 0.94)",
-                  border: "1px solid rgba(251, 191, 36, 0.65)",
-                  boxShadow: "0 4px 14px rgba(0,0,0,0.75)",
-                }}
-              >
-                <ShieldCheck className="w-3 h-3 text-amber-400 shrink-0" />
-                <span>Archive Certifiée · {archiveActiveLabel}</span>
-              </div>
-            </div>
-          )}
-
-        {/* Idée 13 : Badge Radar Géolocalisé Privé */}
-        {showLocalGeoBadge &&
-          video.localGeo &&
-          !archiveActiveLabel &&
-          !inlinePlaying && (
-            <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
-              <div
-                className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold inline-flex items-center gap-1 text-emerald-200 orbit-video-text-shadow"
-                style={{
-                  background: "rgba(4, 18, 14, 0.94)",
-                  border: "1px solid rgba(16, 185, 129, 0.6)",
-                }}
-              >
-                <MapPin className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span className="truncate max-w-[175px]">
-                  {video.localGeo.areaBadge}
-                </span>
-              </div>
-            </div>
-          )}
-
-        {/* Top-Right Quick Action Icons (Mode Cinéma + Mode Audio + Jukebox + Mini-Player PiP) */}
-        <div
-          className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-20"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              onPlayPip(video);
-              if (onMarkWatched) onMarkWatched(video.id);
-            }}
-            className="px-2 py-1 rounded-xl glass-action-btn text-[10px] font-bold text-white cursor-pointer orbit-video-text-shadow"
-            title="Ouvrir dans le mini-lecteur Picture-in-Picture"
-          >
-            PiP
-          </button>
-          {onOpenCinema && (
-            <button
-              type="button"
-              onClick={() => {
-                onOpenCinema(video);
-                if (onMarkWatched) onMarkWatched(video.id);
-              }}
-              className="w-8 h-8 rounded-xl glass-action-btn flex items-center justify-center text-white cursor-pointer"
-              title="Mode Cinéma Plein Écran (Assombrir l'interface)"
-            >
-              <Film className="w-3.5 h-3.5 text-amber-300" />
-            </button>
-          )}
-          {onPlayAudioMode && (
-            <button
-              type="button"
-              onClick={() => {
-                onPlayAudioMode(video);
-                if (onMarkWatched) onMarkWatched(video.id);
-              }}
-              className="w-8 h-8 rounded-xl glass-action-btn flex items-center justify-center text-white cursor-pointer"
-              title="Écouter en Mode Audio / Podcast en arrière-plan"
-            >
-              <Headphones className="w-3.5 h-3.5 text-cyan-300" />
-            </button>
-          )}
-          {onAddToJukebox && (
-            <button
-              type="button"
-              onClick={() => onAddToJukebox(video)}
-              className="w-8 h-8 rounded-xl glass-action-btn flex items-center justify-center text-white cursor-pointer"
-              title="Ajouter au Jukebox Collaboratif des Amis"
-            >
-              <Radio className="w-3.5 h-3.5 text-emerald-300" />
-            </button>
-          )}
-        </div>
-
+        {/* Côté gauche en bas de la vidéo : Badges Plateforme, Archive, Géolocalisation & Domaine */}
         {!inlinePlaying && (
-          <div className="absolute bottom-0 inset-x-0 pt-8 pb-2.5 px-3.5 orbit-video-scrim flex items-center justify-between text-[11px] text-white font-bold pointer-events-none orbit-video-text-shadow">
-            <span className="truncate">
-              {video.domain} · {video.subdomain}
-              {video.challengeTag ? ` · ${video.challengeTag}` : ""}
-            </span>
+          <div className="absolute bottom-0 inset-x-0 pt-8 pb-2.5 px-3 orbit-video-scrim flex items-end justify-between gap-2 text-[11px] text-white font-bold pointer-events-none orbit-video-text-shadow z-10">
+            <div className="flex flex-col items-start gap-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span
+                  className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider border backdrop-blur-md inline-flex items-center gap-1 ${
+                    video.platform === "facebook"
+                      ? "bg-blue-600/85 text-white border-blue-400/50"
+                      : video.platform === "tiktok"
+                      ? "bg-cyan-500/85 text-black border-cyan-300/60"
+                      : video.platform === "instagram"
+                      ? "bg-pink-600/85 text-white border-pink-400/50"
+                      : video.platform === "twitch"
+                      ? "bg-purple-600/85 text-white border-purple-400/50"
+                      : "bg-red-600/85 text-white border-red-400/50"
+                  }`}
+                >
+                  {video.platform === "facebook"
+                    ? "📘 FACEBOOK"
+                    : video.platform === "tiktok"
+                    ? "🎵 TIKTOK 9:16"
+                    : video.platform === "instagram"
+                    ? "📸 INSTAGRAM REEL"
+                    : video.platform === "twitch"
+                    ? "🟣 TWITCH"
+                    : "▶ YOUTUBE"}
+                </span>
+
+                {video.algoDiscovered && (
+                  <span
+                    className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider inline-flex items-center gap-1 text-black shadow-md"
+                    style={{
+                      background: "linear-gradient(135deg, #b4f82a, #38bdf8)",
+                    }}
+                  >
+                    <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                    <span>
+                      ALGO · {video.algoAffinityMatch || 96}% AFFINITÉ
+                    </span>
+                  </span>
+                )}
+
+                {(archiveActiveLabel || video.certifiedArchive) &&
+                  archiveActiveLabel && (
+                    <span
+                      className="px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider inline-flex items-center gap-1 text-amber-200"
+                      style={{
+                        background: "rgba(15, 11, 4, 0.94)",
+                        border: "1px solid rgba(251, 191, 36, 0.65)",
+                      }}
+                    >
+                      <ShieldCheck className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                      <span>Archive · {archiveActiveLabel}</span>
+                    </span>
+                  )}
+
+                {showLocalGeoBadge &&
+                  video.localGeo &&
+                  !archiveActiveLabel && (
+                    <span
+                      className="px-2 py-0.5 rounded-md text-[9px] font-extrabold inline-flex items-center gap-1 text-emerald-200"
+                      style={{
+                        background: "rgba(4, 18, 14, 0.94)",
+                        border: "1px solid rgba(16, 185, 129, 0.6)",
+                      }}
+                    >
+                      <MapPin className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                      <span className="truncate max-w-[140px]">
+                        {video.localGeo.areaBadge}
+                      </span>
+                    </span>
+                  )}
+              </div>
+
+              <span className="truncate max-w-full">
+                {video.domain} · {video.subdomain}
+                {video.challengeTag ? ` · ${video.challengeTag}` : ""}
+              </span>
+            </div>
+
             {rankNumber && (
-              <span className="px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/50 font-mono-num font-black text-amber-300 shrink-0 ml-2">
+              <span className="px-2 py-0.5 rounded-md bg-black/80 border border-amber-400/50 font-mono-num font-black text-amber-300 shrink-0">
                 Rang #{rankNumber}
               </span>
             )}
@@ -667,8 +664,8 @@ export const VideoCard: React.FC<VideoCardProps> = ({
       </div>
 
       {/* ==========================================================
-          FONCTIONNALITÉ 18 : BARRE DE RÉACTIONS ÉPHÉMÈRES EN DIRECT
-          + TIMESTAMPS DES MOMENTS FORTS
+          AU-DESSOUS DE LA VIDÉO : ACTIONS D'AFFICHAGE (PiP, Cinéma, Audio, Jukebox)
+          + BARRE DE RÉACTIONS ÉPHÉMÈRES EN DIRECT
           ========================================================== */}
       <div
         className="px-3.5 py-2.5 space-y-2"
@@ -677,6 +674,70 @@ export const VideoCard: React.FC<VideoCardProps> = ({
           borderBottom: "1px solid var(--border)",
         }}
       >
+        {/* Barre des modes de lecture placée au-dessous de la vidéo */}
+        <div
+          className="flex items-center justify-between gap-1.5 pb-1.5 border-b border-white/[0.06]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span
+            className="text-[10px] font-bold uppercase tracking-wider truncate"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Modes d'écoute & lecteur
+          </span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                onPlayPip(video);
+                if (onMarkWatched) onMarkWatched(video.id);
+              }}
+              className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/10 border border-white/10 text-[10px] font-bold text-white cursor-pointer transition-colors"
+              title="Ouvrir dans le mini-lecteur Picture-in-Picture"
+            >
+              PiP
+            </button>
+            {onOpenCinema && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenCinema(video);
+                  if (onMarkWatched) onMarkWatched(video.id);
+                }}
+                className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/10 border border-white/10 flex items-center gap-1 text-[10px] font-bold text-white cursor-pointer transition-colors"
+                title="Mode Cinéma Plein Écran (Assombrir l'interface)"
+              >
+                <Film className="w-3 h-3 text-amber-300" />
+                <span>Cinéma</span>
+              </button>
+            )}
+            {onPlayAudioMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  onPlayAudioMode(video);
+                  if (onMarkWatched) onMarkWatched(video.id);
+                }}
+                className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/10 border border-white/10 flex items-center gap-1 text-[10px] font-bold text-white cursor-pointer transition-colors"
+                title="Écouter en Mode Audio / Podcast en arrière-plan"
+              >
+                <Headphones className="w-3 h-3 text-cyan-300" />
+                <span>Audio</span>
+              </button>
+            )}
+            {onAddToJukebox && (
+              <button
+                type="button"
+                onClick={() => onAddToJukebox(video)}
+                className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/10 border border-white/10 flex items-center gap-1 text-[10px] font-bold text-white cursor-pointer transition-colors"
+                title="Ajouter au Jukebox Collaboratif des Amis"
+              >
+                <Radio className="w-3 h-3 text-emerald-300" />
+                <span>Jukebox</span>
+              </button>
+            )}
+          </div>
+        </div>
         <div className="flex items-center justify-between gap-1 overflow-x-auto no-scrollbar">
           {LIVE_REACTIONS.map((rx) => {
             const count = video.reactionCounts?.[rx.id] || 0;
@@ -739,6 +800,19 @@ export const VideoCard: React.FC<VideoCardProps> = ({
           <h4 className="text-[15px] font-bold leading-snug font-display">
             {video.title}
           </h4>
+          {video.algoReason && (
+            <div
+              className="mt-2 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-start gap-1.5"
+              style={{
+                background: "rgba(180, 248, 42, 0.08)",
+                border: "1px solid rgba(180, 248, 42, 0.3)",
+                color: "#d9f99d",
+              }}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#b4f82a] shrink-0 mt-0.5" />
+              <span>{video.algoReason}</span>
+            </div>
+          )}
           <p
             className="text-xs italic mt-2.5 p-3 rounded-xl leading-relaxed"
             style={{
@@ -935,38 +1009,129 @@ export const VideoCard: React.FC<VideoCardProps> = ({
             </div>
           )}
 
-          {/* Repost inline form */}
+          {/* Panneau Partager : Créer un lien vers le site + Créer une publication directement sur le site */}
           {repostOpen && (
             <form
               onSubmit={handleRepostSubmit}
-              className="mt-1 pt-2.5 flex flex-col gap-2 text-xs"
+              className="mt-1 pt-2.5 flex flex-col gap-2.5 text-xs"
               style={{ borderTop: "1px dashed var(--border)" }}
             >
-              <label
-                className="font-semibold"
-                style={{ color: "var(--text-muted)" }}
+              {/* Étape 1 : Créer un lien vers le site (en attendant la mise en ligne de l'application) */}
+              <div
+                className="p-2.5 rounded-xl space-y-2"
+                style={{
+                  background: "rgba(0, 229, 255, 0.06)",
+                  border: "1px solid rgba(0, 229, 255, 0.28)",
+                }}
               >
-                Ajouter une note sur votre Page :
-              </label>
-              <div className="flex gap-1.5">
-                <input
-                  type="text"
-                  value={repostNote}
-                  onChange={(e) => setRepostNote(e.target.value)}
-                  className="flex-1 px-2.5 py-1.5 rounded-lg text-xs outline-none"
-                  style={{
-                    background: "var(--bg-input)",
-                    border: "1px solid var(--border)",
-                    color: "var(--text-main)",
-                  }}
-                />
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 rounded-lg font-bold text-white text-xs cursor-pointer btn-couture whitespace-nowrap shrink-0"
-                  style={{ background: "var(--accent)" }}
+                <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                  <span className="font-extrabold text-cyan-300 inline-flex items-center gap-1 text-[11px]">
+                    <Link2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>1. Créer un lien vers le site</span>
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {(
+                      [
+                        { id: "current", label: "Site actuel" },
+                        { id: "infoperso", label: "infoperso.fr" },
+                        { id: "alphabette", label: "alphabette.fr" },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setShareSiteTarget(opt.id)}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-colors ${
+                          shareSiteTarget === opt.id
+                            ? "bg-cyan-400 text-black"
+                            : "bg-white/10 text-white/75 hover:bg-white/20"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <p
+                  className="text-[10px] leading-snug"
+                  style={{ color: "var(--text-muted)" }}
                 >
-                  Publier
-                </button>
+                  L&apos;application mobile n&apos;étant pas encore en ligne, ce lien redirige directement vers le site et prépare ou publie la vidéo :
+                </p>
+
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    readOnly
+                    value={generatedSitePublishUrl}
+                    onClick={(e) => e.currentTarget.select()}
+                    className="flex-1 px-2 py-1 rounded-lg text-[10px] font-mono outline-none select-all"
+                    style={{
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border)",
+                      color: "var(--accent-2)",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopySiteLink}
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold text-black bg-cyan-300 hover:bg-cyan-200 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                    title="Copier le lien vers le site"
+                  >
+                    {shareLinkCopied ? (
+                      <>
+                        <Check className="w-3 h-3" />
+                        <span>Copié !</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        <span>Copier le lien</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNativeShareSiteLink}
+                    className="px-2 py-1 rounded-lg text-[10px] font-bold text-white bg-white/10 hover:bg-white/20 border border-white/15 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                    title="Envoyer ce lien vers le site (WhatsApp, SMS, Telegram...)"
+                  >
+                    <Share2 className="w-3 h-3 text-cyan-300" />
+                    <span>Envoyer</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Étape 2 : Créer la publication directement sur le site */}
+              <div className="space-y-1.5">
+                <label
+                  className="font-extrabold text-[11px] flex items-center gap-1"
+                  style={{ color: "var(--text-main)" }}
+                >
+                  <span>2. Créer une publication directement sur le site :</span>
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={repostNote}
+                    onChange={(e) => setRepostNote(e.target.value)}
+                    placeholder="Votre note de publication sur le site..."
+                    className="flex-1 px-2.5 py-1.5 rounded-lg text-xs outline-none"
+                    style={{
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text-main)",
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 rounded-lg font-bold text-white text-xs cursor-pointer btn-couture whitespace-nowrap shrink-0"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    Publier sur le site
+                  </button>
+                </div>
               </div>
             </form>
           )}

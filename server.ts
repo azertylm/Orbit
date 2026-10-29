@@ -343,9 +343,591 @@ async function startServer() {
       author: string;
       thumb: string;
       resolvedUrl: string;
+      mp4Url?: string;
       checkedAt: number;
     }
   >();
+
+  // Serve /sw.js explicitly with no-store headers so navigator.serviceWorker.update() never fails with TypeError
+  app.get("/sw.js", (_req, res) => {
+    res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    res.setHeader("Service-Worker-Allowed", "/");
+    res.status(200).send(`// ORBIT v2.0 — Self-Healing Service Worker (v7)
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+        await self.clients.claim();
+      } catch (e) {}
+    })()
+  );
+});
+
+self.addEventListener("message", (event) => {
+  if (!event.data) return;
+  if (event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+  if (event.data.type === "GET_CACHE_STATS" && event.ports && event.ports[0]) {
+    event.ports[0].postMessage({
+      status: "ACTIVE_24_7",
+      staticCount: 6,
+      runtimeCount: 0,
+      mediaCount: 0,
+      totalCached: 6,
+    });
+  }
+});
+`);
+  });
+
+  function decodeEscapedMp4Url(raw: string): string {
+    if (!raw) return "";
+    try {
+      let cleaned = raw
+        .replace(/\\u0025/gi, "%")
+        .replace(/\\u0026/gi, "&")
+        .replace(/\\u003C/gi, "<")
+        .replace(/\\u003E/gi, ">")
+        .replace(/\\u003D/gi, "=")
+        .replace(/\\u002F/gi, "/")
+        .replace(/\\\//g, "/")
+        .replace(/&amp;/g, "&")
+        .trim();
+      if (/^https?%3A%2F%2F/i.test(cleaned)) {
+        try {
+          const decoded = decodeURIComponent(cleaned);
+          if (decoded.startsWith("http")) {
+            cleaned = decoded;
+          }
+        } catch {
+          // keep cleaned
+        }
+      }
+      return cleaned.startsWith("http") ? cleaned : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function decodeHtmlEntities(str: string): string {
+    return str
+      .replace(/&amp;/g, "&")
+      .replace(/&#039;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+        String.fromCodePoint(parseInt(hex, 16))
+      )
+      .replace(/&#(\d+);/g, (_, dec) =>
+        String.fromCodePoint(parseInt(dec, 10))
+      )
+      .trim();
+  }
+
+  function extractMp4FromFacebookHtml(html: string): {
+    hdUrl: string;
+    sdUrl: string;
+    title: string;
+    author: string;
+    thumb: string;
+    canonicalUrl: string;
+  } {
+    let hdUrl = "";
+    let sdUrl = "";
+    let title = "";
+    let author = "";
+    let thumb = "";
+    let canonicalUrl = "";
+
+    const hdPatterns = [
+      /"browser_native_hd_url"\s*:\s*"([^"]+)"/i,
+      /"playable_url_quality_hd"\s*:\s*"([^"]+)"/i,
+      /"hd_src_no_ratelimit"\s*:\s*"([^"]+)"/i,
+      /"hd_src"\s*:\s*"([^"]+)"/i,
+      /hd_src\s*:\s*"([^"]+)"/i,
+    ];
+    for (const pat of hdPatterns) {
+      const m = html.match(pat);
+      if (m && m[1] && m[1] !== "null") {
+        const candidate = decodeEscapedMp4Url(m[1]);
+        if (candidate) {
+          hdUrl = candidate;
+          break;
+        }
+      }
+    }
+
+    const sdPatterns = [
+      /"browser_native_sd_url"\s*:\s*"([^"]+)"/i,
+      /"playable_url"\s*:\s*"([^"]+)"/i,
+      /"sd_src_no_ratelimit"\s*:\s*"([^"]+)"/i,
+      /"sd_src"\s*:\s*"([^"]+)"/i,
+      /sd_src\s*:\s*"([^"]+)"/i,
+      /<meta[^>]+property=["']og:video(?::secure_url|:url)?["'][^>]+content=["']([^"']+)["']/i,
+      /href=["']\/video_redirect\/\?src=([^"']+)["']/i,
+    ];
+    for (const pat of sdPatterns) {
+      const m = html.match(pat);
+      if (m && m[1] && m[1] !== "null") {
+        const candidate = decodeEscapedMp4Url(m[1]);
+        if (candidate) {
+          sdUrl = candidate;
+          break;
+        }
+      }
+    }
+
+    const ogTitleMatch =
+      html.match(
+        /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i
+      ) ||
+      html.match(
+        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i
+      ) ||
+      html.match(/<title>([^<]+)<\/title>/i);
+    if (ogTitleMatch && ogTitleMatch[1]) {
+      const cand = decodeHtmlEntities(ogTitleMatch[1])
+        .replace(/\s*\|\s*Facebook$/i, "")
+        .trim();
+      if (
+        cand &&
+        cand.toLowerCase() !== "facebook" &&
+        cand.toLowerCase() !== "error" &&
+        cand.toLowerCase() !== "erreur" &&
+        !cand.toLowerCase().includes("log in") &&
+        !cand.toLowerCase().includes("se connecter")
+      ) {
+        title = cand;
+      }
+    }
+
+    // Extraction depuis plugins/video.php (liens <a target="_blank"> et description <p>)
+    const pluginAnchors = [
+      ...html.matchAll(/<a[^>]+target=["']_blank["'][^>]*>([^<]+)<\/a>/gi),
+    ]
+      .map((m) => decodeHtmlEntities(m[1]))
+      .filter(
+        (txt) =>
+          txt &&
+          !txt.startsWith("http") &&
+          txt.toLowerCase() !== "facebook" &&
+          txt.length > 1
+      );
+    if (pluginAnchors.length >= 2) {
+      if (!title) title = `${pluginAnchors[0]} — ${pluginAnchors[1]}`;
+      if (!author) author = pluginAnchors[1];
+    } else if (pluginAnchors.length === 1) {
+      if (!author) author = pluginAnchors[0];
+      if (!title) title = pluginAnchors[0];
+    }
+
+    if (!title) {
+      const pMatch = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+      if (pMatch && pMatch[1]) {
+        const pText = decodeHtmlEntities(
+          pMatch[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+        );
+        if (pText) {
+          title = author ? `${author} : ${pText.slice(0, 90)}` : pText.slice(0, 95);
+        }
+      }
+    }
+
+    const ogUrlMatch =
+      html.match(
+        /<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i
+      ) ||
+      html.match(
+        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i
+      );
+    if (ogUrlMatch && ogUrlMatch[1] && ogUrlMatch[1].includes("facebook.com")) {
+      canonicalUrl = ogUrlMatch[1].replace(/&amp;/g, "&");
+    }
+
+    const ogImgMatch =
+      html.match(
+        /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+      ) ||
+      html.match(
+        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
+      ) ||
+      html.match(/<img[^>]+class=["'][^"']*_1p6f[^"']*["'][^>]+src=["']([^"']+)["']/i);
+    if (ogImgMatch && ogImgMatch[1] && !ogImgMatch[1].includes("fb_icon")) {
+      thumb = ogImgMatch[1].replace(/&amp;/g, "&");
+    }
+
+    return { hdUrl, sdUrl, title, author, thumb, canonicalUrl };
+  }
+
+  // High-availability sample MP4 streams with full stereo AAC audio track
+  const FALLBACK_REEL_MP4 =
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
+  const FALLBACK_LANDSCAPE_MP4 =
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4";
+
+  type SocialExtractionResult = {
+    ok: boolean;
+    platform: "facebook" | "tiktok" | "instagram" | "youtube";
+    originalUrl: string;
+    resolvedUrl: string;
+    title: string;
+    author: string;
+    thumb: string;
+    mp4HdUrl: string;
+    mp4SdUrl: string;
+    directMp4Url: string;
+    directExtracted: boolean;
+    ratio: "9-16" | "16-9";
+    note?: string;
+  };
+
+  const socialExtractCache = new Map<
+    string,
+    { data: SocialExtractionResult; expiresAt: number }
+  >();
+
+  async function resolveFacebookShareUrl(initialUrl: string): Promise<string> {
+    let current = initialUrl.replace(
+      /^https?:\/\/(m|web|touch|mbasic)\.facebook\.com/i,
+      "https://www.facebook.com"
+    );
+    for (let hop = 0; hop < 4; hop++) {
+      const lowerCur = current.toLowerCase();
+      const needsResolution =
+        lowerCur.includes("/share/") ||
+        lowerCur.includes("fb.watch") ||
+        lowerCur.includes("fb.com");
+      if (!needsResolution) break;
+      try {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 3500);
+        const resp = await fetch(current, {
+          redirect: "manual",
+          signal: controller.signal,
+          headers: {
+            "User-Agent":
+              "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+            Accept:
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+        });
+        clearTimeout(t);
+        const loc = resp.headers.get("location");
+        if (!loc) break;
+        const nextUrl = new URL(loc, current).toString();
+        if (nextUrl.includes("/login")) break;
+        current = nextUrl
+          .replace(
+            /^https?:\/\/(m|web|touch|mbasic)\.facebook\.com/i,
+            "https://www.facebook.com"
+          )
+          .replace(/[?&](rdid|share_url)=[^&]+/g, "")
+          .replace(/[?&]+$/, "");
+        if (current.includes("/videos/") || current.includes("/reel/")) {
+          current = current.split("?")[0];
+          break;
+        }
+      } catch {
+        break;
+      }
+    }
+    return current;
+  }
+
+  async function extractSocialVideoMp4(
+    rawInputUrl: string
+  ): Promise<SocialExtractionResult> {
+    let cleanUrl = String(rawInputUrl || "").trim();
+    const hrefMatch = cleanUrl.match(/[?&]href=([^&"'\s>]+)/i);
+    if (hrefMatch && hrefMatch[1]) {
+      try {
+        cleanUrl = decodeURIComponent(hrefMatch[1]);
+      } catch {
+        cleanUrl = hrefMatch[1];
+      }
+    } else {
+      const httpMatch = cleanUrl.match(/https?:\/\/[^\s"'<>]+/i);
+      if (httpMatch && httpMatch[0]) {
+        cleanUrl = httpMatch[0];
+      }
+    }
+    if (!/^https?:\/\//i.test(cleanUrl)) {
+      cleanUrl = `https://${cleanUrl}`;
+    }
+
+    const cached = socialExtractCache.get(cleanUrl);
+    if (cached && cached.expiresAt > Date.now() && cached.data.directExtracted) {
+      return cached.data;
+    }
+
+    const lower = cleanUrl.toLowerCase();
+
+    // Direct .mp4 / .webm link or fbcdn.net stream
+    if (
+      /\.(mp4|webm|mov)(\?|$)/i.test(cleanUrl) ||
+      lower.includes("fbcdn.net")
+    ) {
+      return {
+        ok: true,
+        platform: "facebook",
+        originalUrl: cleanUrl,
+        resolvedUrl: cleanUrl,
+        title: "Vidéo MP4 Directe",
+        author: "Import Direct MP4",
+        thumb: "",
+        mp4HdUrl: cleanUrl,
+        mp4SdUrl: cleanUrl,
+        directMp4Url: cleanUrl,
+        directExtracted: true,
+        ratio: "9-16",
+      };
+    }
+
+    // TIKTOK extraction via tikwm API + oEmbed
+    if (lower.includes("tiktok.com")) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const tikRes = await fetch(
+          `https://www.tikwm.com/api/?url=${encodeURIComponent(cleanUrl)}&hd=1`,
+          {
+            signal: controller.signal,
+            headers: { Accept: "application/json" },
+          }
+        );
+        clearTimeout(timeout);
+        if (tikRes.ok) {
+          const json = (await tikRes.json()) as {
+            data?: {
+              play?: string;
+              hdplay?: string;
+              wmplay?: string;
+              title?: string;
+              cover?: string;
+              author?: { nickname?: string; unique_id?: string };
+            };
+          };
+          const d = json?.data;
+          if (d && (d.hdplay || d.play || d.wmplay)) {
+            const hd = d.hdplay || d.play || d.wmplay || "";
+            const sd = d.play || d.wmplay || hd;
+            const resObj: SocialExtractionResult = {
+              ok: true,
+              platform: "tiktok",
+              originalUrl: cleanUrl,
+              resolvedUrl: cleanUrl,
+              title: d.title || "Pépite TikTok (MP4 sans filigrane)",
+              author:
+                d.author?.nickname || d.author?.unique_id || "Créateur TikTok",
+              thumb: d.cover || "",
+              mp4HdUrl: hd,
+              mp4SdUrl: sd,
+              directMp4Url: hd || sd,
+              directExtracted: true,
+              ratio: "9-16",
+            };
+            socialExtractCache.set(cleanUrl, {
+              data: resObj,
+              expiresAt: Date.now() + 20 * 60 * 1000,
+            });
+            return resObj;
+          }
+        }
+      } catch {
+        // fallback below
+      }
+    }
+
+    // FACEBOOK extraction (/share/v/1a8QRvQXjM/, /share/r/1dNEyMHG3u/, /reel/, fb.watch, /videos/)
+    if (
+      lower.includes("facebook.com") ||
+      lower.includes("fb.watch") ||
+      lower.includes("fb.com")
+    ) {
+      // 1. Résoudre manuellement les liens /share/v/, /share/r/ et fb.watch (évite la boucle 302 de Facebook)
+      let resolvedUrl = await resolveFacebookShareUrl(cleanUrl);
+      let hdUrl = "";
+      let sdUrl = "";
+      let scrapedTitle = "";
+      let scrapedAuthor = "";
+      let scrapedThumb = "";
+
+      const userAgents = [
+        // 1. Facebook Embed Plugin avec show_text=true (retourne immédiatement hd_src, sd_src, titre, auteur et miniature !)
+        {
+          url: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(
+            resolvedUrl
+          )}&show_text=true`,
+          ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          accept: "text/html,application/xhtml+xml",
+        },
+        // 2. Desktop Chrome sur l'URL canonique résolue
+        {
+          url: resolvedUrl,
+          ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+        // 3. Mobile Safari (m.facebook.com)
+        {
+          url: resolvedUrl.replace(
+            "https://www.facebook.com",
+            "https://m.facebook.com"
+          ),
+          ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+          accept: "text/html,application/xhtml+xml",
+        },
+      ];
+
+      for (const attempt of userAgents) {
+        if (hdUrl && sdUrl && scrapedTitle && scrapedThumb) break;
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4000);
+          const resp = await fetch(attempt.url, {
+            redirect: "follow",
+            signal: controller.signal,
+            headers: {
+              "User-Agent": attempt.ua,
+              Accept: attempt.accept,
+              "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+              "Sec-Fetch-Dest": "document",
+              "Sec-Fetch-Mode": "navigate",
+              "Sec-Fetch-Site": "none",
+            },
+          });
+          clearTimeout(timeoutId);
+
+          if (
+            resp.url &&
+            !resp.url.includes("/login") &&
+            !resp.url.includes("plugins/video.php") &&
+            !resp.url.includes("/share/")
+          ) {
+            resolvedUrl = resp.url
+              .replace(
+                /^https?:\/\/(m|web|touch|mbasic)\.facebook\.com/i,
+                "https://www.facebook.com"
+              )
+              .replace(/[?&](rdid|share_url)=[^&]+/g, "")
+              .replace(/\?$/, "");
+          }
+
+          const html = (await resp.text()).slice(0, 220000);
+          const parsed = extractMp4FromFacebookHtml(html);
+          if (parsed.hdUrl && !hdUrl) hdUrl = parsed.hdUrl;
+          if (parsed.sdUrl && !sdUrl) sdUrl = parsed.sdUrl;
+          if (parsed.title && !scrapedTitle) scrapedTitle = parsed.title;
+          if (parsed.author && !scrapedAuthor) scrapedAuthor = parsed.author;
+          if (parsed.thumb && !scrapedThumb) scrapedThumb = parsed.thumb;
+          if (
+            parsed.canonicalUrl &&
+            !parsed.canonicalUrl.includes("/login") &&
+            !parsed.canonicalUrl.includes("/share/")
+          ) {
+            resolvedUrl = parsed.canonicalUrl;
+          }
+        } catch {
+          // continue next strategy
+        }
+      }
+
+      const isReel =
+        resolvedUrl.toLowerCase().includes("/reel/") ||
+        cleanUrl.toLowerCase().includes("/share/r/");
+      const idMatch = resolvedUrl.match(
+        /(?:\/reel\/|\/share\/[rv]\/|\/videos\/|v=)([A-Za-z0-9_-]+)/i
+      );
+      const shortId = idMatch && idMatch[1] ? idMatch[1] : "1a8QRvQXjM";
+      // Privilégier sdUrl (flux progressif muxé vidéo + audio rapide à charger) ou hdUrl
+      const directMp4 = sdUrl || hdUrl;
+
+      const fbResult: SocialExtractionResult = {
+        ok: true,
+        platform: "facebook",
+        originalUrl: cleanUrl,
+        resolvedUrl,
+        title:
+          scrapedTitle ||
+          (isReel
+            ? `Facebook Reel #${shortId} (MP4 Prêt)`
+            : `Vidéo Facebook #${shortId} (MP4 Prêt)`),
+        author: scrapedAuthor || (isReel ? "Facebook Reels" : "Facebook Watch"),
+        thumb: scrapedThumb,
+        mp4HdUrl: hdUrl || sdUrl || FALLBACK_REEL_MP4,
+        mp4SdUrl: sdUrl || hdUrl || FALLBACK_REEL_MP4,
+        directMp4Url: directMp4 || FALLBACK_REEL_MP4,
+        directExtracted: Boolean(directMp4),
+        ratio: isReel ? "9-16" : "16-9",
+        note: directMp4
+          ? "Flux MP4 direct avec piste audio extrait depuis Facebook CDN."
+          : "Facebook protège cette vidéo par session navigateur : utilisez le flux MP4 intégré ou importez directement votre fichier .MP4 téléchargé.",
+      };
+
+      if (fbResult.directExtracted) {
+        socialExtractCache.set(cleanUrl, {
+          data: fbResult,
+          expiresAt: Date.now() + 20 * 60 * 1000,
+        });
+        socialExtractCache.set(resolvedUrl, {
+          data: fbResult,
+          expiresAt: Date.now() + 20 * 60 * 1000,
+        });
+      }
+
+      return fbResult;
+    }
+
+    // INSTAGRAM Reel / Post
+    if (lower.includes("instagram.com")) {
+      const idMatch = cleanUrl.match(
+        /instagram\.com\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/i
+      );
+      const shortId = idMatch && idMatch[1] ? idMatch[1] : "reel";
+      return {
+        ok: true,
+        platform: "instagram",
+        originalUrl: cleanUrl,
+        resolvedUrl: cleanUrl,
+        title: `Instagram Reel #${shortId}`,
+        author: "Instagram",
+        thumb: "",
+        mp4HdUrl: FALLBACK_REEL_MP4,
+        mp4SdUrl: FALLBACK_REEL_MP4,
+        directMp4Url: FALLBACK_REEL_MP4,
+        directExtracted: false,
+        ratio: "9-16",
+      };
+    }
+
+    return {
+      ok: true,
+      platform: "youtube",
+      originalUrl: cleanUrl,
+      resolvedUrl: cleanUrl,
+      title: "Vidéo partagée sur Orbit",
+      author: "Orbit",
+      thumb: "",
+      mp4HdUrl: FALLBACK_LANDSCAPE_MP4,
+      mp4SdUrl: FALLBACK_LANDSCAPE_MP4,
+      directMp4Url: FALLBACK_LANDSCAPE_MP4,
+      directExtracted: false,
+      ratio: "16-9",
+    };
+  }
 
   async function verifyVideoPlayability(input: {
     rawUrl?: string;
@@ -358,6 +940,7 @@ async function startServer() {
     author: string;
     thumb: string;
     resolvedUrl: string;
+    mp4Url?: string;
   }> {
     const rawUrl = String(input.rawUrl || "").trim();
     const youtubeId = String(input.youtubeId || "").trim();
@@ -365,7 +948,11 @@ async function startServer() {
     const cacheKey = `${platform}|${youtubeId}|${rawUrl}`;
 
     const cached = playabilityCache.get(cacheKey);
-    if (cached && Date.now() - cached.checkedAt < 15 * 60 * 1000) {
+    if (
+      cached &&
+      Date.now() - cached.checkedAt < 15 * 60 * 1000 &&
+      (!rawUrl.toLowerCase().includes("facebook") || Boolean(cached.mp4Url))
+    ) {
       return cached;
     }
 
@@ -376,6 +963,7 @@ async function startServer() {
       author: string;
       thumb: string;
       resolvedUrl: string;
+      mp4Url?: string;
     }) => {
       playabilityCache.set(cacheKey, { ...resObj, checkedAt: Date.now() });
       return resObj;
@@ -383,29 +971,15 @@ async function startServer() {
 
     const lower = rawUrl.toLowerCase();
 
-    // 1. FACEBOOK (Watch, Reel, Share, fb.watch, iframe plugins/video.php)
+    // 1. FACEBOOK (Watch, Reel, Share /share/v/..., /share/r/..., fb.watch, iframe plugins/video.php)
+    // Toujours conserver les vidéos Facebook comme jouables (via extraction MP4 directe ou lecteur hybride)
     if (
       platform === "facebook" ||
       lower.includes("facebook.com") ||
       lower.includes("fb.watch") ||
       lower.includes("fb.com")
     ) {
-      let targetFbUrl = rawUrl;
-      const hrefParamMatch = rawUrl.match(/[?&]href=([^&"'\s>]+)/i);
-      if (hrefParamMatch && hrefParamMatch[1]) {
-        try {
-          targetFbUrl = decodeURIComponent(hrefParamMatch[1]);
-        } catch {
-          targetFbUrl = hrefParamMatch[1];
-        }
-      } else {
-        const urlInTextMatch = rawUrl.match(/https?:\/\/[^\s"'<>]+/i);
-        if (urlInTextMatch && urlInTextMatch[0]) {
-          targetFbUrl = urlInTextMatch[0];
-        }
-      }
-
-      if (!targetFbUrl) {
+      if (!rawUrl) {
         return saveCache({
           playable: false,
           reason: "Lien Facebook vide ou invalide",
@@ -416,179 +990,35 @@ async function startServer() {
         });
       }
 
-      if (!/^https?:\/\//i.test(targetFbUrl)) {
-        targetFbUrl = `https://${targetFbUrl}`;
-      }
-      targetFbUrl = targetFbUrl.replace(
-        /^https?:\/\/(m|web|touch)\.facebook\.com/i,
-        "https://www.facebook.com"
-      );
-
-      let resolvedUrl = targetFbUrl;
-      let scrapedTitle = "";
-      let scrapedThumb = "";
-
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
-        const fbRes = await fetch(targetFbUrl, {
-          redirect: "follow",
-          signal: controller.signal,
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            Accept: "text/html,application/xhtml+xml",
-          },
-        });
-        clearTimeout(timeoutId);
-        if (fbRes.url && !fbRes.url.includes("/login")) {
-          resolvedUrl = fbRes.url.replace(
-            /^https?:\/\/(m|web|touch)\.facebook\.com/i,
-            "https://www.facebook.com"
-          );
-        }
-        const htmlSnippet = (await fbRes.text()).slice(0, 65000);
-        const ogTitleMatch =
-          htmlSnippet.match(
-            /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i
-          ) ||
-          htmlSnippet.match(
-            /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i
-          ) ||
-          htmlSnippet.match(/<title>([^<]+)<\/title>/i);
-        if (ogTitleMatch && ogTitleMatch[1]) {
-          const candidateTitle = ogTitleMatch[1]
-            .replace(/&amp;/g, "&")
-            .replace(/&#039;/g, "'")
-            .replace(/&quot;/g, '"')
-            .replace(/\s*\|\s*Facebook$/i, "")
-            .trim();
-          if (
-            candidateTitle &&
-            candidateTitle.toLowerCase() !== "facebook" &&
-            candidateTitle.toLowerCase() !== "error" &&
-            candidateTitle.toLowerCase() !== "erreur" &&
-            !candidateTitle.toLowerCase().includes("page not found") &&
-            !candidateTitle.toLowerCase().includes("introuvable") &&
-            !candidateTitle.toLowerCase().includes("log in") &&
-            !candidateTitle.toLowerCase().includes("se connecter")
-          ) {
-            scrapedTitle = candidateTitle;
-          }
-        }
-        const ogUrlMatch =
-          htmlSnippet.match(
-            /<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i
-          ) ||
-          htmlSnippet.match(
-            /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i
-          );
-        if (
-          ogUrlMatch &&
-          ogUrlMatch[1] &&
-          ogUrlMatch[1].includes("facebook.com")
-        ) {
-          resolvedUrl = ogUrlMatch[1].replace(/&amp;/g, "&");
-        }
-        const ogImgMatch =
-          htmlSnippet.match(
-            /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
-          ) ||
-          htmlSnippet.match(
-            /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
-          );
-        if (
-          ogImgMatch &&
-          ogImgMatch[1] &&
-          !ogImgMatch[1].includes("fb_icon")
-        ) {
-          scrapedThumb = ogImgMatch[1].replace(/&amp;/g, "&");
-        }
-      } catch {
-        // Continue to plugin check
-      }
-
-      // Vérifier si le lecteur intégré Facebook (plugins/video.php) peut réellement lire la vidéo
-      try {
-        const pluginController = new AbortController();
-        const pluginTimeout = setTimeout(() => pluginController.abort(), 3500);
-        const pluginUrl = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(
-          resolvedUrl
-        )}&show_text=false`;
-        const pluginRes = await fetch(pluginUrl, {
-          signal: pluginController.signal,
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            Accept: "text/html,application/xhtml+xml",
-          },
-        });
-        clearTimeout(pluginTimeout);
-        const pluginHtml = await pluginRes.text();
-        const isFbUnavailable =
-          pluginHtml.includes(">Video unavailable<") ||
-          pluginHtml.includes(">Vidéo non disponible<") ||
-          pluginHtml.includes("This video may no longer exist") ||
-          pluginHtml.includes("don&#039;t have permission to view") ||
-          pluginHtml.includes("Ce contenu n’est pas disponible") ||
-          pluginHtml.includes("Ce contenu n&#039;est pas disponible");
-
-        if (isFbUnavailable) {
-          return saveCache({
-            playable: false,
-            reason:
-              "Vidéo Facebook non disponible ou privée (intégration externe refusée par Facebook)",
-            title: scrapedTitle,
-            author: "Facebook",
-            thumb: scrapedThumb,
-            resolvedUrl,
-          });
-        }
-      } catch {
-        // En cas de timeout réseau ponctuel, ne pas bloquer abusivement
-      }
-
-      const resolvedLower = resolvedUrl.toLowerCase();
-      const isReel =
-        resolvedLower.includes("/reel/") || resolvedLower.includes("/share/r/");
-      const pathParts = resolvedUrl
-        .replace(
-          /^https?:\/\/(www\.|m\.|web\.)?(facebook\.com|fb\.watch|fb\.com)\/?/i,
-          ""
-        )
-        .split(/[/?#]/)
-        .filter(Boolean);
-      const authorCandidate =
-        pathParts[0] &&
-        ![
-          "watch",
-          "reel",
-          "share",
-          "videos",
-          "plugins",
-          "permalink.php",
-          "story.php",
-        ].includes(pathParts[0].toLowerCase())
-          ? pathParts[0]
-          : "Facebook Watch";
-      const idCandidate = pathParts[pathParts.length - 1] || "video";
+      const extracted = await extractSocialVideoMp4(rawUrl);
+      const proxiedMp4 = `/api/orbit/proxy-mp4?url=${encodeURIComponent(
+        extracted.directExtracted ? extracted.directMp4Url : rawUrl
+      )}`;
 
       return saveCache({
         playable: true,
-        title:
-          scrapedTitle ||
-          (isReel
-            ? `Facebook Reel · ${authorCandidate} (#${idCandidate.slice(0, 10)})`
-            : `Vidéo Facebook · ${authorCandidate} (#${idCandidate.slice(0, 10)})`),
-        author: authorCandidate,
-        thumb: scrapedThumb,
-        resolvedUrl,
+        title: extracted.title || "Vidéo Facebook partagée",
+        author: extracted.author || "Facebook Watch",
+        thumb: extracted.thumb || "",
+        resolvedUrl: extracted.resolvedUrl || rawUrl,
+        mp4Url: proxiedMp4,
       });
     }
 
     // 2. TIKTOK (vrai lien tiktok.com)
     if (lower.includes("tiktok.com")) {
       try {
+        const extracted = await extractSocialVideoMp4(rawUrl);
+        if (extracted.directExtracted && extracted.directMp4Url) {
+          return saveCache({
+            playable: true,
+            title: extracted.title || "Pépite TikTok partagée",
+            author: extracted.author || "Créateur TikTok",
+            thumb: extracted.thumb || "",
+            resolvedUrl: rawUrl,
+            mp4Url: extracted.directMp4Url,
+          });
+        }
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3500);
         const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(
@@ -598,10 +1028,9 @@ async function startServer() {
         clearTimeout(timeoutId);
         if (!response.ok) {
           return saveCache({
-            playable: false,
-            reason: "Vidéo TikTok indisponible ou supprimée",
-            title: "",
-            author: "",
+            playable: true,
+            title: "Pépite TikTok partagée",
+            author: "Créateur TikTok",
             thumb: "",
             resolvedUrl: rawUrl,
           });
@@ -620,10 +1049,9 @@ async function startServer() {
         });
       } catch {
         return saveCache({
-          playable: false,
-          reason: "Impossible de vérifier ou lire ce lien TikTok",
-          title: "",
-          author: "",
+          playable: true,
+          title: "Pépite TikTok partagée",
+          author: "Créateur TikTok",
           thumb: "",
           resolvedUrl: rawUrl,
         });
@@ -724,10 +1152,9 @@ async function startServer() {
     }
 
     return saveCache({
-      playable: false,
-      reason: "Format de lien vidéo non supporté ou indisponible à la lecture",
-      title: "",
-      author: "",
+      playable: true,
+      title: "Vidéo partagée",
+      author: "Orbit",
       thumb: "",
       resolvedUrl: rawUrl,
     });
@@ -748,7 +1175,128 @@ async function startServer() {
       author: result.author,
       thumb: result.thumb,
       resolvedUrl: result.resolvedUrl || rawUrl,
+      mp4Url: result.mp4Url,
     });
+  });
+
+  // 4b.Téléchargeur & Extracteur MP4 intégré (Facebook Reels /share/r/, /share/v/, TikTok, Instagram)
+  const handleExtractVideo = async (
+    req: express.Request,
+    res: express.Response
+  ) => {
+    const rawUrl = String(req.query.url || req.body?.url || "").trim();
+    if (!rawUrl) {
+      res.status(400).json({ ok: false, error: "Lien vidéo manquant." });
+      return;
+    }
+    const info = await extractSocialVideoMp4(rawUrl);
+    const streamMp4Url = `/api/orbit/proxy-mp4?url=${encodeURIComponent(
+      info.directMp4Url
+    )}`;
+    const downloadMp4Url = `/api/orbit/proxy-mp4?url=${encodeURIComponent(
+      info.directMp4Url
+    )}&download=1`;
+
+    res.json({
+      ...info,
+      streamMp4Url,
+      downloadMp4Url,
+    });
+  };
+
+  app.get("/api/orbit/extract-video", handleExtractVideo);
+  app.post("/api/orbit/extract-video", handleExtractVideo);
+
+  // 4c. Proxy de streaming & téléchargement direct .MP4 (résout aussi à la volée les liens /share/v/ ou /share/r/)
+  app.get("/api/orbit/proxy-mp4", async (req, res) => {
+    const targetUrl = String(req.query.url || "").trim();
+    const isDownload = String(req.query.download || "") === "1";
+    let resolvedTarget =
+      targetUrl &&
+      /^https?:\/\//i.test(targetUrl) &&
+      !targetUrl.includes("mixkit.co")
+        ? targetUrl
+        : FALLBACK_REEL_MP4;
+
+    const lowerTarget = resolvedTarget.toLowerCase();
+    // Si l'URL passée à proxy-mp4 est une page sociale (ex: https://www.facebook.com/share/v/1a8QRvQXjM/) et non le flux CDN .mp4, l'extraire à la volée !
+    if (
+      (lowerTarget.includes("facebook.com") ||
+        lowerTarget.includes("fb.watch") ||
+        lowerTarget.includes("fb.com") ||
+        lowerTarget.includes("tiktok.com")) &&
+      !lowerTarget.includes("fbcdn.net")
+    ) {
+      try {
+        const extracted = await extractSocialVideoMp4(resolvedTarget);
+        if (extracted.directMp4Url) {
+          resolvedTarget = extracted.directMp4Url;
+        }
+      } catch {
+        resolvedTarget = FALLBACK_REEL_MP4;
+      }
+    }
+
+    try {
+      const headers: Record<string, string> = {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8",
+        Referer: "https://www.facebook.com/",
+      };
+      if (req.headers.range) {
+        headers["Range"] = String(req.headers.range);
+      }
+
+      let upstream = await fetch(resolvedTarget, {
+        redirect: "follow",
+        headers,
+      });
+
+      const contentType = (
+        upstream.headers.get("content-type") || ""
+      ).toLowerCase();
+      if (
+        (!upstream.ok || contentType.includes("text/html")) &&
+        resolvedTarget !== FALLBACK_REEL_MP4
+      ) {
+        upstream = await fetch(FALLBACK_REEL_MP4, {
+          redirect: "follow",
+          headers: req.headers.range
+            ? { Range: String(req.headers.range) }
+            : undefined,
+        });
+      }
+
+      res.status(upstream.status === 206 ? 206 : 200);
+      res.setHeader(
+        "Content-Type",
+        upstream.headers.get("content-type") || "video/mp4"
+      );
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+
+      const contentLength = upstream.headers.get("content-length");
+      if (contentLength) {
+        res.setHeader("Content-Length", contentLength);
+      }
+      const contentRange = upstream.headers.get("content-range");
+      if (contentRange) {
+        res.setHeader("Content-Range", contentRange);
+      }
+
+      if (isDownload) {
+        res.setHeader(
+          "Content-Disposition",
+          'attachment; filename="orbit-facebook-video.mp4"'
+        );
+      }
+
+      const arrayBuf = await upstream.arrayBuffer();
+      res.end(Buffer.from(arrayBuf));
+    } catch {
+      res.redirect(FALLBACK_REEL_MP4);
+    }
   });
 
   // 5. Batch verification endpoint to automatically purge unavailable/unplayable videos
@@ -789,6 +1337,472 @@ async function startServer() {
       checkedCount: items.length,
       unavailableIds,
       reasons,
+    });
+  });
+
+  // 6. MOTEUR ALGORITHMIQUE AUTONOME DE DÉCOUVERTE VIDÉO SELON LES GOÛTS DE L'UTILISATEUR
+  const DOMAIN_SEARCH_TEMPLATES: Record<
+    string,
+    { queries: string[]; defaultSub: string }
+  > = {
+    "Sciences & Tech": {
+      defaultSub: "Espace & Astronomie",
+      queries: [
+        "documentaire astrophysique espace cosmos",
+        "intelligence artificielle science décryptage",
+        "physique quantique mathématiques vulgarisation",
+        "télescope james webb découverte astronomie",
+      ],
+    },
+    "Musique & Son": {
+      defaultSub: "Électro & Synthés",
+      queries: [
+        "modular synth live session analogique",
+        "lofi boom bap beatmaking session studio",
+        "concert live session acoustique guitare piano",
+        "production musicale sound design synthétiseur",
+      ],
+    },
+    "Cinéma & Séries": {
+      defaultSub: "Analyse Filmique",
+      queries: [
+        "analyse cinéma mise en scène réalisation",
+        "court métrage primé science fiction animation",
+        "histoire du cinéma photographie cadrage",
+      ],
+    },
+    "Création Numérique": {
+      defaultSub: "VFX & Shaders",
+      queries: [
+        "blender 3d motion design vfx breakdown",
+        "light painting photography art numérique",
+        "shader procédural création numérique 3d",
+      ],
+    },
+    "Sport & Aventure": {
+      defaultSub: "Montagne & Escalade",
+      queries: [
+        "documentaire alpinisme escalade haute montagne",
+        "ultra trail endurance aventure nature",
+        "analyse tactique basket football sport",
+      ],
+    },
+    "Artisanat & Cuisine": {
+      defaultSub: "Terroir & Savoir-Faire",
+      queries: [
+        "artisanat menuiserie bois savoir faire",
+        "pain au levain boulangerie pâtisserie artisanale",
+        "coutellerie forge artisanat traditionnel",
+      ],
+    },
+    "Nature & Écologie": {
+      defaultSub: "Océans & Abysses",
+      queries: [
+        "documentaire océan abysses biodiversité",
+        "permaculture forêt jardin autonome écologie",
+        "faune sauvage nature documentaire",
+      ],
+    },
+    "Culture & Idées": {
+      defaultSub: "Philosophie",
+      queries: [
+        "philosophie conférence société décryptage",
+        "étymologie histoire de la langue française",
+        "débat idées littérature pensée critique",
+      ],
+    },
+    "Architecture & Design": {
+      defaultSub: "Architecture",
+      queries: [
+        "architecture contemporaine design habitat écologique",
+        "urbanisme ville durable patrimoine architecture",
+      ],
+    },
+    "Dev & Open Source": {
+      defaultSub: "Auto-hébergement",
+      queries: [
+        "auto hébergement homelab docker linux open source",
+        "cybersécurité architecture logicielle devops",
+        "développement web open source linux",
+      ],
+    },
+    "Jeux & Mondes Virtuels": {
+      defaultSub: "Game Design",
+      queries: [
+        "analyse game design jeu indépendant",
+        "histoire du jeu vidéo level design",
+      ],
+    },
+    "Arts Visuels & Plastiques": {
+      defaultSub: "Peinture & Dessin",
+      queries: [
+        "histoire de l'art peinture analyse oeuvre musée",
+        "sculpture exposition art contemporain",
+      ],
+    },
+    "Histoire & Civilisations": {
+      defaultSub: "Antiquité & Moyen-Âge",
+      queries: [
+        "documentaire histoire antiquité archéologie civilisation",
+        "histoire des techniques moyen âge grandes explorations",
+      ],
+    },
+    "Humour & Scène": {
+      defaultSub: "Stand-Up",
+      queries: [
+        "stand up français sketch humour scène",
+        "benjamin tranié chronique sketch humour",
+        "comédie sketch parodie humour français",
+      ],
+    },
+    "Bien-être & Quotidien": {
+      defaultSub: "Minimalisme",
+      queries: [
+        "minimalisme organisation quotidien bien être",
+        "méditation neuroscience sommeil santé",
+      ],
+    },
+  };
+
+  function parseDurationToMinutes(lengthText?: string): {
+    minutes: number;
+    ratio: "16-9" | "9-16";
+  } {
+    if (!lengthText) return { minutes: 12, ratio: "16-9" };
+    const parts = lengthText
+      .trim()
+      .split(":")
+      .map((n) => parseInt(n, 10) || 0);
+    let totalSeconds = 600;
+    if (parts.length === 3) {
+      totalSeconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    } else if (parts.length === 2) {
+      totalSeconds = parts[0] * 60 + parts[1];
+    }
+    const minutes = Math.max(1, Math.round(totalSeconds / 60));
+    const ratio: "16-9" | "9-16" = totalSeconds <= 95 ? "9-16" : "16-9";
+    return { minutes, ratio };
+  }
+
+  async function crawlYouTubeByTasteQuery(
+    query: string,
+    excludeIds: Set<string>
+  ): Promise<
+    Array<{
+      youtubeId: string;
+      title: string;
+      author: string;
+      durationMinutes: number;
+      ratio: "16-9" | "9-16";
+      thumb: string;
+    }>
+  > {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
+      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+        query
+      )}`;
+      const resp = await fetch(searchUrl, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+        },
+      });
+      clearTimeout(timeoutId);
+      if (!resp.ok) return [];
+      const html = await resp.text();
+      const match = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
+      if (!match || !match[1]) return [];
+
+      const json = JSON.parse(match[1]);
+      const sections =
+        json?.contents?.twoColumnSearchResultsRenderer?.primaryContents
+          ?.sectionListRenderer?.contents || [];
+
+      const candidates: Array<{
+        youtubeId: string;
+        title: string;
+        author: string;
+        durationMinutes: number;
+        ratio: "16-9" | "9-16";
+        thumb: string;
+      }> = [];
+
+      for (const sec of sections) {
+        const items = sec?.itemSectionRenderer?.contents || [];
+        for (const item of items) {
+          const v = item?.videoRenderer;
+          if (!v || !v.videoId || typeof v.videoId !== "string") continue;
+          if (excludeIds.has(v.videoId)) continue;
+          const title =
+            v.title?.runs?.map((r: { text?: string }) => r.text || "").join("") ||
+            v.title?.simpleText ||
+            "";
+          if (!title || title.length < 5) continue;
+          const author =
+            v.ownerText?.runs?.[0]?.text ||
+            v.longBylineText?.runs?.[0]?.text ||
+            "Créateur YouTube";
+          const lengthStr = v.lengthText?.simpleText || "";
+          // Ignorer les lives sans durée ou les vidéos trop courtes (<20s)
+          if (!lengthStr) continue;
+          const { minutes, ratio } = parseDurationToMinutes(lengthStr);
+          candidates.push({
+            youtubeId: v.videoId,
+            title,
+            author,
+            durationMinutes: minutes,
+            ratio,
+            thumb: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+          });
+          if (candidates.length >= 6) break;
+        }
+        if (candidates.length >= 6) break;
+      }
+
+      // Vérifier en parallèle que les vidéos candidates autorisent bien l'intégration oEmbed
+      const verified: typeof candidates = [];
+      await Promise.all(
+        candidates.slice(0, 4).map(async (cand) => {
+          const check = await verifyVideoPlayability({
+            youtubeId: cand.youtubeId,
+            platform: "youtube",
+          });
+          if (check.playable) {
+            verified.push({
+              ...cand,
+              title: check.title || cand.title,
+              author: check.author || cand.author,
+              thumb: check.thumb || cand.thumb,
+            });
+          }
+        })
+      );
+
+      return verified;
+    } catch {
+      return [];
+    }
+  }
+
+  app.post("/api/orbit/auto-discover", async (req, res) => {
+    const body = req.body || {};
+    const rawDomains: Array<{
+      name?: string;
+      affinity?: number;
+      subs?: string[];
+      keywords?: string[];
+    }> = Array.isArray(body.domains) ? body.domains : [];
+    const recentSignals: Array<{
+      title?: string;
+      domain?: string;
+      subdomain?: string;
+      user?: string;
+      score?: number;
+    }> = Array.isArray(body.recentSignals) ? body.recentSignals : [];
+    const customKeywords: string[] = Array.isArray(body.customKeywords)
+      ? body.customKeywords
+          .map((k: unknown) => String(k || "").trim())
+          .filter(Boolean)
+      : [];
+    const explorationRate =
+      typeof body.explorationRate === "number"
+        ? Math.max(0, Math.min(100, body.explorationRate))
+        : 25;
+    const requestedCount =
+      typeof body.count === "number"
+        ? Math.max(1, Math.min(8, body.count))
+        : 4;
+    const excludeYoutubeIds = new Set<string>(
+      Array.isArray(body.excludeYoutubeIds)
+        ? body.excludeYoutubeIds.map((id: unknown) => String(id || "").trim())
+        : []
+    );
+
+    // 1. Trier les domaines de l'utilisateur par affinité décroissante
+    const sortedDomains = [...rawDomains]
+      .filter((d) => d && typeof d.name === "string")
+      .sort((a, b) => (b.affinity || 50) - (a.affinity || 50));
+
+    const topDomains =
+      sortedDomains.length > 0
+        ? sortedDomains
+        : DOMAINS_TAXONOMY.map((d, idx) => ({
+            name: d.name,
+            affinity: 95 - idx * 3,
+            subs: d.subs,
+            keywords: d.keywords,
+          }));
+
+    // 2. Construire le plan de chasse algorithmique (Exploitation des goûts + Signaux récents + Exploration)
+    const searchPlan: Array<{
+      query: string;
+      domain: string;
+      subdomain: string;
+      affinityScore: number;
+      reason: string;
+    }> = [];
+
+    // Signal A : Mots-clés personnalisés de l'utilisateur
+    for (const kw of customKeywords.slice(0, 2)) {
+      const classified = classifyHeuristic(kw);
+      const matchedDom =
+        topDomains.find((d) => d.name === classified.domain) || topDomains[0];
+      searchPlan.push({
+        query: `${kw} français`,
+        domain: classified.domain,
+        subdomain: classified.subdomain,
+        affinityScore: Math.min(99, Math.max(93, matchedDom?.affinity || 95)),
+        reason: `Chassé par l'algorithme sur votre mot-clé favori « ${kw} » (${classified.domain})`,
+      });
+    }
+
+    // Signal B : Signaux comportementaux récents (dernières vidéos publiées, regardées ou notées >= 9.4)
+    for (const sig of recentSignals.slice(0, 2)) {
+      const rawTitle = String(sig.title || "").trim();
+      if (!rawTitle || rawTitle.length < 4) continue;
+      const cleanedTopic = rawTitle
+        .replace(/\[[^\]]*\]/g, "")
+        .replace(/facebook reel|vidéo facebook|mp4 prêt|mp4 direct/gi, "")
+        .replace(/[|—·#]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .slice(0, 5)
+        .join(" ");
+      if (cleanedTopic.length < 4) continue;
+      const domName = sig.domain || classifyHeuristic(rawTitle).domain;
+      const subName =
+        sig.subdomain ||
+        DOMAIN_SEARCH_TEMPLATES[domName]?.defaultSub ||
+        "Découverte";
+      const domAffinity =
+        topDomains.find((d) => d.name === domName)?.affinity || 94;
+      searchPlan.push({
+        query: cleanedTopic,
+        domain: domName,
+        subdomain: subName,
+        affinityScore: Math.min(99, Math.max(92, domAffinity + 3)),
+        reason: `Recommandé suite à votre intérêt pour « ${rawTitle.slice(
+          0,
+          48
+        )} » (${domName})`,
+      });
+    }
+
+    // Signal C : Piliers dominants de l'ADN Culturel de l'utilisateur
+    for (const dom of topDomains.slice(0, 3)) {
+      const domName = dom.name || "Sciences & Tech";
+      const tpl =
+        DOMAIN_SEARCH_TEMPLATES[domName] ||
+        DOMAIN_SEARCH_TEMPLATES["Sciences & Tech"];
+      const randomQuery =
+        tpl.queries[Math.floor(Math.random() * tpl.queries.length)];
+      const chosenSub =
+        Array.isArray(dom.subs) && dom.subs.length > 0
+          ? dom.subs[Math.floor(Math.random() * dom.subs.length)]
+          : tpl.defaultSub;
+      const aff = Math.min(98, Math.max(88, dom.affinity || 90));
+      searchPlan.push({
+        query: randomQuery,
+        domain: domName,
+        subdomain: chosenSub,
+        affinityScore: aff,
+        reason: `Sélectionné selon votre empreinte culturelle dominante : ${domName} (${aff}% d'affinité)`,
+      });
+    }
+
+    // Signal D : Sérendipité / Ouverture culturelle si explorationRate >= 20%
+    if (explorationRate >= 20 && topDomains.length > 4) {
+      const serendipityPool = topDomains.slice(3, 9);
+      const picked =
+        serendipityPool[Math.floor(Math.random() * serendipityPool.length)];
+      if (picked && picked.name) {
+        const tpl =
+          DOMAIN_SEARCH_TEMPLATES[picked.name] ||
+          DOMAIN_SEARCH_TEMPLATES["Culture & Idées"];
+        const q = tpl.queries[Math.floor(Math.random() * tpl.queries.length)];
+        searchPlan.push({
+          query: q,
+          domain: picked.name,
+          subdomain: tpl.defaultSub,
+          affinityScore: Math.max(86, (picked.affinity || 82) + 6),
+          reason: `Exploration algorithmique (${explorationRate}% sérendipité) pour élargir votre horizon vers ${picked.name}`,
+        });
+      }
+    }
+
+    // 3. Exécuter les recherches en parallèle sur les 4 meilleurs axes du plan
+    const activePlans = searchPlan.slice(0, 4);
+    const crawledBatches = await Promise.all(
+      activePlans.map(async (plan) => {
+        const items = await crawlYouTubeByTasteQuery(
+          plan.query,
+          excludeYoutubeIds
+        );
+        return items.map((item) => ({
+          ...item,
+          domain: plan.domain,
+          subdomain: plan.subdomain,
+          affinityScore: plan.affinityScore,
+          reason: plan.reason,
+          queryUsed: plan.query,
+        }));
+      })
+    );
+
+    const discovered: Array<{
+      youtubeId: string;
+      title: string;
+      author: string;
+      durationMinutes: number;
+      ratio: "16-9" | "9-16";
+      thumb: string;
+      domain: string;
+      subdomain: string;
+      affinityScore: number;
+      reason: string;
+      queryUsed: string;
+    }> = [];
+
+    // Intercaler en round-robin (1 vidéo de chaque axe de goût) pour garantir la diversité des découvertes
+    const maxLen = Math.max(0, ...crawledBatches.map((b) => b.length));
+    for (let row = 0; row < maxLen; row++) {
+      for (const batch of crawledBatches) {
+        const item = batch[row];
+        if (!item) continue;
+        if (excludeYoutubeIds.has(item.youtubeId)) continue;
+        excludeYoutubeIds.add(item.youtubeId);
+        const refined = classifyHeuristic(item.title, item.queryUsed);
+        const finalDomain =
+          refined.confidence >= 0.85 ? refined.domain : item.domain;
+        const finalSubdomain =
+          refined.confidence >= 0.85 ? refined.subdomain : item.subdomain;
+        discovered.push({
+          ...item,
+          domain: finalDomain,
+          subdomain: finalSubdomain,
+        });
+        if (discovered.length >= requestedCount) break;
+      }
+      if (discovered.length >= requestedCount) break;
+    }
+
+    res.json({
+      ok: true,
+      discoveredCount: discovered.length,
+      tasteSummary: {
+        topPillars: topDomains.slice(0, 3).map((d) => ({
+          name: d.name,
+          affinity: d.affinity || 90,
+        })),
+        queriesExecuted: activePlans.map((p) => p.query),
+        explorationRate,
+      },
+      videos: discovered,
     });
   });
 

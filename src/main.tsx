@@ -145,6 +145,56 @@ class RootErrorBoundary extends React.Component<
   }
 }
 
+// Interception globale des rejets de promesses ou événements d'erreur bruts de l'API YouTube IFrame (playerInfo)
+if (typeof window !== 'undefined') {
+  const isYouTubePlayerErrorObject = (val: unknown): boolean => {
+    if (!val || typeof val !== 'object') return false;
+    const obj = val as Record<string, unknown>;
+    if (obj.target && typeof obj.target === 'object') {
+      const target = obj.target as Record<string, unknown>;
+      if ('playerInfo' in target || 'getVideoUrl' in target || 'v' in target) {
+        return true;
+      }
+    }
+    return 'playerInfo' in obj;
+  };
+
+  window.addEventListener(
+    'unhandledrejection',
+    (event: PromiseRejectionEvent) => {
+      if (isYouTubePlayerErrorObject(event.reason)) {
+        event.preventDefault();
+        const reasonObj = event.reason as { data?: unknown };
+        const code = reasonObj?.data ? String(reasonObj.data) : '150';
+        window.dispatchEvent(
+          new CustomEvent('orbit-yt-player-error', { detail: { code } })
+        );
+      }
+    },
+    true
+  );
+
+  window.addEventListener(
+    'error',
+    (event: ErrorEvent) => {
+      if (
+        isYouTubePlayerErrorObject(event.error) ||
+        (typeof event.message === 'string' &&
+          event.message.includes('playerInfo') &&
+          event.message.includes('apiInterface'))
+      ) {
+        event.preventDefault();
+        const errObj = event.error as { data?: unknown } | undefined;
+        const code = errObj?.data ? String(errObj.data) : '150';
+        window.dispatchEvent(
+          new CustomEvent('orbit-yt-player-error', { detail: { code } })
+        );
+      }
+    },
+    true
+  );
+}
+
 createRoot(document.getElementById('root')!).render(
   <RootErrorBoundary>
     <App />

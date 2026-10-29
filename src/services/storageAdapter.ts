@@ -782,4 +782,74 @@ export const OrbitStorageService = {
       );
     });
   },
+
+  async saveLocalVideoBlob(videoId: number, blob: Blob): Promise<string> {
+    const objectUrl = URL.createObjectURL(blob);
+    if (typeof window === "undefined" || !("indexedDB" in window)) {
+      return objectUrl;
+    }
+    return new Promise((resolve) => {
+      try {
+        const req = window.indexedDB.open("OrbitLocalMediaDB", 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("videos")) {
+            db.createObjectStore("videos");
+          }
+        };
+        req.onsuccess = () => {
+          try {
+            const db = req.result;
+            const tx = db.transaction("videos", "readwrite");
+            tx.objectStore("videos").put(blob, `vid_${videoId}`);
+            tx.oncomplete = () => resolve(objectUrl);
+            tx.onerror = () => resolve(objectUrl);
+          } catch {
+            resolve(objectUrl);
+          }
+        };
+        req.onerror = () => resolve(objectUrl);
+      } catch {
+        resolve(objectUrl);
+      }
+    });
+  },
+
+  async loadLocalVideoBlobUrl(videoId: number): Promise<string | null> {
+    if (typeof window === "undefined" || !("indexedDB" in window)) {
+      return null;
+    }
+    return new Promise((resolve) => {
+      try {
+        const req = window.indexedDB.open("OrbitLocalMediaDB", 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("videos")) {
+            db.createObjectStore("videos");
+          }
+        };
+        req.onsuccess = () => {
+          try {
+            const db = req.result;
+            const tx = db.transaction("videos", "readonly");
+            const getReq = tx.objectStore("videos").get(`vid_${videoId}`);
+            getReq.onsuccess = () => {
+              const result = getReq.result;
+              if (result instanceof Blob) {
+                resolve(URL.createObjectURL(result));
+              } else {
+                resolve(null);
+              }
+            };
+            getReq.onerror = () => resolve(null);
+          } catch {
+            resolve(null);
+          }
+        };
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  },
 };

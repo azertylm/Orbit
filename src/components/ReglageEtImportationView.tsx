@@ -7,6 +7,7 @@ import {
   createPlatformCoverSvg,
   getVideoEmbedConfig,
 } from "../data/orbitData";
+import { UniversalVideoPlayer } from "./UniversalVideoPlayer";
 import { ImportedNetworkPayload } from "./ConsentAndAcquisitionModal";
 import {
   ShieldCheck,
@@ -2657,21 +2658,22 @@ export const ReglageEtImportationView: React.FC<ReglageEtImportationViewProps> =
             }}
           >
             <div className="relative rounded-2xl overflow-hidden aspect-video bg-black border border-white/15">
-              {probeResult.canEmbedDirectly && probePlayingInline ? (
-                <iframe
-                  width="100%"
-                  height="100%"
-                  src={
-                    getVideoEmbedConfig({
-                      platform: probeResult.platform,
-                      rawUrl: probeResult.url,
-                      youtubeId: probeResult.youtubeId,
-                    }).embedUrl
-                  }
-                  title={probeResult.title}
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
+              {probePlayingInline ? (
+                <UniversalVideoPlayer
+                  video={{
+                    title: probeResult.title,
+                    platform:
+                      probeResult.platform === "unknown"
+                        ? "youtube"
+                        : probeResult.platform,
+                    rawUrl: probeResult.url,
+                    youtubeId: probeResult.youtubeId || "aircAruvnKk",
+                    thumb: probeResult.thumbnailUrl,
+                  }}
+                  playing={true}
+                  controls={true}
+                  showTopBar={true}
+                  onCloseInline={() => setProbePlayingInline(false)}
                   className="w-full h-full"
                 />
               ) : (
@@ -2683,29 +2685,24 @@ export const ReglageEtImportationView: React.FC<ReglageEtImportationViewProps> =
                     className="w-full h-full object-cover opacity-85"
                   />
                   <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center p-3 text-center gap-2">
-                    {probeResult.canEmbedDirectly ? (
-                      <button
-                        type="button"
-                        onClick={() => setProbePlayingInline(true)}
-                        className="px-4 py-2 rounded-full text-xs font-extrabold text-white bg-emerald-500 hover:bg-emerald-600 inline-flex items-center gap-1.5 cursor-pointer shadow-lg"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>Lire dans le lecteur intégré</span>
-                      </button>
-                    ) : (
-                      <a
-                        href={probeResult.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-2 rounded-full text-xs font-extrabold text-black bg-cyan-300 hover:bg-cyan-200 inline-flex items-center gap-1.5 shadow-lg"
-                      >
-                        <Smartphone className="w-3.5 h-3.5" />
-                        <span>
-                          Ouvrir dans l&apos;application native / navigateur
-                        </span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setProbePlayingInline(true)}
+                      className="px-4 py-2 rounded-full text-xs font-extrabold text-white bg-emerald-500 hover:bg-emerald-600 inline-flex items-center gap-1.5 cursor-pointer shadow-lg"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Lire dans ReactPlayer Universel</span>
+                    </button>
+                    <a
+                      href={probeResult.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3.5 py-1.5 rounded-full text-[11px] font-bold text-black bg-cyan-300 hover:bg-cyan-200 inline-flex items-center gap-1.5 shadow-lg"
+                    >
+                      <Smartphone className="w-3 h-3" />
+                      <span>Ouvrir dans l&apos;app native</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
                   </div>
                 </>
               )}

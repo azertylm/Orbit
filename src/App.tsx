@@ -40,6 +40,7 @@ import {
   OrbitUiProfilePreset,
 } from "./services/storageAdapter";
 import { VideoCard } from "./components/VideoCard";
+import { UniversalVideoPlayer } from "./components/UniversalVideoPlayer";
 import { VerticalFeed } from "./components/VerticalFeed";
 import { PantheonBlindTest } from "./components/PantheonBlindTest";
 import { AlphabetteDevOpsView } from "./components/AlphabetteDevOpsView";
@@ -100,10 +101,27 @@ import {
   QrCode,
   Briefcase,
   Upload,
+  Home,
+  MessageSquare,
+  Star,
+  Target,
+  Bell,
+  Settings,
+  ArrowRight,
+  ChevronRight,
 } from "lucide-react";
 
 type PageId = "p1" | "p2" | "p3" | "p4" | "p5";
-type FeedFilter = "all" | "friends" | "youtube" | "vertical" | "top95";
+type FeedFilter =
+  | "all"
+  | "algo"
+  | "friends"
+  | "youtube"
+  | "tiktok"
+  | "instagram"
+  | "facebook"
+  | "vertical"
+  | "top95";
 type FeedViewMode = "immersion" | "grid";
 type ProfileTab = "wall" | "favs" | "secret" | "capsules";
 type PantheonMode = "gravity" | "emerging" | "month" | "alltime";
@@ -322,19 +340,18 @@ export default function App() {
     const defaultIdSet = new Set(DEFAULT_VIDEOS.map((dv) => dv.id));
     // Conserver uniquement les vraies vidéos ajoutées par l'utilisateur (id >= 3000) qui ne sont pas purgées ni cassées
     const ownerProfileName = loaded.profile?.name || "Valentin R.";
+    const seenCustomIds = new Set<number>();
     const customUserVideos: OrbitVideo[] = (
       Array.isArray(loaded.videos) ? loaded.videos : []
     )
-      .filter(
-        (v) =>
-          v &&
-          typeof v === "object" &&
-          typeof v.id === "number" &&
-          !defaultIdSet.has(v.id) &&
-          !purgedIdsSet.has(v.id) &&
-          v.id >= 3000 &&
-          !(v.youtubeId && brokenYtIds.has(v.youtubeId))
-      )
+      .filter((v) => {
+        if (!v || typeof v !== "object" || typeof v.id !== "number") return false;
+        if (defaultIdSet.has(v.id) || purgedIdsSet.has(v.id) || v.id < 3000) return false;
+        if (seenCustomIds.has(v.id)) return false;
+        if (v.youtubeId && brokenYtIds.has(v.youtubeId)) return false;
+        seenCustomIds.add(v.id);
+        return true;
+      })
       .map((v) => {
         const healedYtId =
           !v.youtubeId || brokenYtIds.has(v.youtubeId)
@@ -378,6 +395,18 @@ export default function App() {
           ratio: healedRatio,
           youtubeId: healedYtId,
           thumb: healedThumb,
+          mp4Url:
+            typeof v.mp4Url === "string" &&
+            (v.mp4Url.includes("mixkit.co") ||
+              (isFacebookVid && v.mp4Url.includes("ForBiggerBlazes")))
+              ? `/api/orbit/proxy-mp4?url=${encodeURIComponent(
+                  v.rawUrl ||
+                    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+                )}`
+              : !v.mp4Url && isFacebookVid && v.rawUrl
+              ? `/api/orbit/proxy-mp4?url=${encodeURIComponent(v.rawUrl)}`
+              : v.mp4Url,
+          hasLocalMp4Blob: v.hasLocalMp4Blob,
           domain: healedDomain,
           score:
             typeof v.score === "number" && !Number.isNaN(v.score)
@@ -393,10 +422,14 @@ export default function App() {
         };
       });
 
-    const mergedVideos: OrbitVideo[] = [
-      ...customUserVideos,
-      ...refreshedDefaultVideos,
-    ];
+    const finalSeenIds = new Set<number>();
+    const mergedVideos: OrbitVideo[] = [];
+    [...customUserVideos, ...refreshedDefaultVideos].forEach((v) => {
+      if (v && typeof v.id === "number" && !finalSeenIds.has(v.id)) {
+        finalSeenIds.add(v.id);
+        mergedVideos.push(v);
+      }
+    });
 
     // Aligner les 15 domaines avec DEFAULT_DOMAINS pour éviter tout filtre vide
     const mergedDomains: OrbitDomain[] = DEFAULT_DOMAINS.map((defDom) => {
@@ -582,7 +615,7 @@ export default function App() {
     };
   });
 
-  // Navigation & UI state — Par défaut en Mode Grille pour afficher d'emblée les 51 vidéos et les 5 pages
+  // Navigation & UI state — Principe fondamental : 4 pages cœur + 5e page navigables par scroll/swipe gauche-droite
   const [activePage, setActivePage] = useState<PageId>("p1");
   const [feedViewMode, setFeedViewMode] = useState<FeedViewMode>("grid");
   const [immersiveUiVisible, setImmersiveUiVisible] = useState<boolean>(true);
@@ -595,6 +628,233 @@ export default function App() {
   const [activeSubpillar, setActiveSubpillar] = useState<string>("Tous");
   const [pantheonMode, setPantheonMode] = useState<PantheonMode>("gravity");
   const [radarExploration, setRadarExploration] = useState<number>(25);
+
+  // Architecture des 4 Pages Cœur (+ 5e Page Passerelle & Infra) navigables de gauche à droite
+  const ORBIT_PAGES = useMemo(
+    () => [
+      {
+        id: "p1" as PageId,
+        num: 1,
+        shortTitle: "Le Flux",
+        title: "Page 1 · Le Flux",
+        subtitle: "Accueil, Amis & Découvertes Algo",
+        badge: "1/5",
+        accent: "#b4f82a",
+      },
+      {
+        id: "p2" as PageId,
+        num: 2,
+        shortTitle: "Ma Page",
+        title: "Page 2 · Ma Page",
+        subtitle: "Mon Mur, Coups de Cœur & Portfolio",
+        badge: "2/5",
+        accent: "#38bdf8",
+      },
+      {
+        id: "p3" as PageId,
+        num: 3,
+        shortTitle: "Le Panthéon",
+        title: "Page 3 · Le Panthéon",
+        subtitle: "Les 15 Piliers & Classement Souverain",
+        badge: "3/5",
+        accent: "#f59e0b",
+      },
+      {
+        id: "p4" as PageId,
+        num: 4,
+        shortTitle: "Le Radar",
+        title: "Page 4 · Le Radar",
+        subtitle: "Exploration, Humeurs & Sérendipité",
+        badge: "4/5",
+        accent: "#a855f7",
+      },
+      {
+        id: "p5" as PageId,
+        num: 5,
+        shortTitle: "Import & Infra",
+        title: "Page 5 · Import & Infra",
+        subtitle: "Acquisition Réseaux & Architecture VPS",
+        badge: "5/5",
+        accent: "#10b981",
+      },
+    ],
+    []
+  );
+
+  const activePageIndex = useMemo(
+    () => Math.max(0, ORBIT_PAGES.findIndex((p) => p.id === activePage)),
+    [ORBIT_PAGES, activePage]
+  );
+
+  const pageRailRef = useRef<HTMLDivElement | null>(null);
+  const swipeTouchStartRef = useRef<{
+    x: number;
+    y: number;
+    time: number;
+    ignore: boolean;
+  } | null>(null);
+  const wheelCooldownRef = useRef<number>(0);
+  const [swipeDeltaX, setSwipeDeltaX] = useState<number>(0);
+  const [pageTransitionDir, setPageTransitionDir] = useState<
+    "left" | "right" | null
+  >(null);
+
+  const navigateToOrbitPage = (
+    targetPage: PageId,
+    direction?: "left" | "right"
+  ) => {
+    if (targetPage === activePage) return;
+    const currentIdx = ORBIT_PAGES.findIndex((p) => p.id === activePage);
+    const nextIdx = ORBIT_PAGES.findIndex((p) => p.id === targetPage);
+    const dir =
+      direction || (nextIdx > currentIdx ? "right" : "left");
+    setPageTransitionDir(dir);
+    setActivePage(targetPage);
+    if (targetPage === "p5" && feedViewMode === "immersion") {
+      setFeedViewMode("grid");
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(() => setPageTransitionDir(null), 260);
+  };
+
+  const navigatePageByOffset = (offset: -1 | 1) => {
+    const nextIdx = activePageIndex + offset;
+    if (nextIdx < 0 || nextIdx >= ORBIT_PAGES.length) return;
+    const target = ORBIT_PAGES[nextIdx];
+    navigateToOrbitPage(target.id, offset > 0 ? "right" : "left");
+  };
+
+  // Centrer automatiquement l'onglet actif dans le rail horizontal des 5 pages
+  useEffect(() => {
+    const rail = pageRailRef.current;
+    if (!rail) return;
+    const activeBtn = rail.querySelector(
+      `[data-orbit-page-btn="${activePage}"]`
+    ) as HTMLElement | null;
+    if (activeBtn) {
+      activeBtn.scrollIntoView({
+        behavior: "smooth",
+        inline: "center",
+        block: "nearest",
+      });
+    }
+  }, [activePage]);
+
+  // Navigation clavier Gauche / Droite (Flèches ◀ / ▶) entre les 5 pages
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        navigatePageByOffset(-1);
+      } else if (e.key === "ArrowRight") {
+        navigatePageByOffset(1);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activePageIndex, activePage, feedViewMode]);
+
+  const shouldIgnoreHorizontalSwipe = (target: EventTarget | null): boolean => {
+    let el = target as HTMLElement | null;
+    while (el && el !== document.body) {
+      const tag = el.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        tag === "IFRAME" ||
+        tag === "VIDEO" ||
+        el.dataset?.noPageSwipe === "true"
+      ) {
+        return true;
+      }
+      const style = window.getComputedStyle(el);
+      if (
+        (style.overflowX === "auto" || style.overflowX === "scroll") &&
+        el.scrollWidth > el.clientWidth + 8
+      ) {
+        return true;
+      }
+      el = el.parentElement;
+    }
+    return false;
+  };
+
+  const handleViewportTouchStart = (e: React.TouchEvent<HTMLElement>) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    swipeTouchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: Date.now(),
+      ignore: shouldIgnoreHorizontalSwipe(e.target),
+    };
+    setSwipeDeltaX(0);
+  };
+
+  const handleViewportTouchMove = (e: React.TouchEvent<HTMLElement>) => {
+    const start = swipeTouchStartRef.current;
+    if (!start || start.ignore || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) * 1.35) {
+      const clamped = Math.max(-110, Math.min(110, dx));
+      setSwipeDeltaX(clamped);
+    } else if (Math.abs(dy) > Math.abs(dx)) {
+      setSwipeDeltaX(0);
+    }
+  };
+
+  const handleViewportTouchEnd = (e: React.TouchEvent<HTMLElement>) => {
+    const start = swipeTouchStartRef.current;
+    swipeTouchStartRef.current = null;
+    setSwipeDeltaX(0);
+    if (!start || start.ignore || e.changedTouches.length === 0) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const elapsed = Date.now() - start.time;
+    const isHorizontalSwipe =
+      Math.abs(dx) >= 56 &&
+      Math.abs(dx) > Math.abs(dy) * 1.3 &&
+      elapsed < 900;
+    if (isHorizontalSwipe) {
+      if (dx < 0) {
+        // Glisser vers la gauche -> Page suivante (ex: Page 1 -> Page 2)
+        navigatePageByOffset(1);
+      } else {
+        // Glisser vers la droite -> Page précédente (ex: Page 2 -> Page 1)
+        navigatePageByOffset(-1);
+      }
+    }
+  };
+
+  const handleViewportWheel = (e: React.WheelEvent<HTMLElement>) => {
+    // Support du scroll horizontal au trackpad à 2 doigts (gauche / droite)
+    if (Math.abs(e.deltaX) < 52 || Math.abs(e.deltaX) < Math.abs(e.deltaY) * 1.75) {
+      return;
+    }
+    if (shouldIgnoreHorizontalSwipe(e.target)) return;
+    const now = Date.now();
+    if (now - wheelCooldownRef.current < 680) return;
+    wheelCooldownRef.current = now;
+    if (e.deltaX > 0) {
+      navigatePageByOffset(1);
+    } else {
+      navigatePageByOffset(-1);
+    }
+  };
 
   // Adaptation temps réel de la hauteur du viewport (Android / iOS)
   useEffect(() => {
@@ -735,7 +995,7 @@ export default function App() {
     mediaCount: 0,
   });
 
-  // Composer state
+  // Composer state + Téléchargeur Vidéo Facebook / Importateur MP4
   const [inpUrl, setInpUrl] = useState("");
   const [inpDomain, setInpDomain] = useState(DEFAULT_DOMAINS[0].name);
   const [inpSubdomain, setInpSubdomain] = useState(DEFAULT_DOMAINS[0].subs[0]);
@@ -743,12 +1003,120 @@ export default function App() {
   const [inpComment, setInpComment] = useState("");
   const [inpChallengeTag, setInpChallengeTag] = useState<string>("");
   const [aiStatusText, setAiStatusText] = useState(
-    "Auto-Classification IA Gemini prête : collez un lien ou tapez un titre"
+    "Auto-Classification IA Gemini prête : collez un lien ou importez un fichier .MP4"
   );
   const [isClassifying, setIsClassifying] = useState(false);
 
+  // État du Téléchargeur Vidéo Facebook / Reels & Importateur MP4 Local
+  const [isExtractingVideo, setIsExtractingVideo] = useState(false);
+  const [extractedMp4Info, setExtractedMp4Info] = useState<{
+    streamMp4Url: string;
+    downloadMp4Url: string;
+    directExtracted: boolean;
+    title: string;
+    resolvedUrl: string;
+    ratio: "9-16" | "16-9";
+    note?: string;
+  } | null>(null);
+  const [uploadedMp4Blob, setUploadedMp4Blob] = useState<Blob | null>(null);
+  const [uploadedMp4PreviewUrl, setUploadedMp4PreviewUrl] =
+    useState<string>("");
+  const [uploadedMp4FileName, setUploadedMp4FileName] = useState<string>("");
+  const [uploadedMp4Thumb, setUploadedMp4Thumb] = useState<string>("");
+  const [uploadedMp4Ratio, setUploadedMp4Ratio] = useState<"9-16" | "16-9">(
+    "9-16"
+  );
+  const composerMp4FileRef = useRef<HTMLInputElement | null>(null);
+
   // PiP Player state
   const [pipVideo, setPipVideo] = useState<OrbitVideo | null>(null);
+
+  // Panneaux supérieurs masqués par défaut et groupés par deux au-dessus de la 1re vidéo
+  const [activeTopPanel, setActiveTopPanel] = useState<
+    "challenges" | "dna" | "downloader" | "friends" | "profile" | null
+  >(null);
+  const [headerToolsOpen, setHeaderToolsOpen] = useState(false);
+  const [activeSpaceDomain, setActiveSpaceDomain] = useState<string>("Tous");
+  const [heroExpanded, setHeroExpanded] = useState<boolean>(true);
+
+  // Moteur Algorithmique Autonome de Découverte selon les Goûts
+  const [algoAutoPilot, setAlgoAutoPilot] = useState<boolean>(() => {
+    try {
+      const v = window.localStorage.getItem("ORBIT_ALGO_AUTOPILOT_V1");
+      return v === null ? true : v === "true";
+    } catch {
+      return true;
+    }
+  });
+  const [algoCustomKeywords, setAlgoCustomKeywords] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem("ORBIT_ALGO_KEYWORDS_V1");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [
+      "Astrophysique & Espace",
+      "Stand-up & Humour",
+      "Synthétiseur Modulaire",
+    ];
+  });
+  const [algoKeywordInput, setAlgoKeywordInput] = useState<string>("");
+  const [isAlgoHunting, setIsAlgoHunting] = useState<boolean>(false);
+  const [algoLastHuntReport, setAlgoLastHuntReport] = useState<{
+    timestamp: string;
+    discoveredCount: number;
+    queriesExecuted: string[];
+    topPillars: Array<{ name: string; affinity: number }>;
+  } | null>(null);
+  const algoInitialBootDoneRef = useRef<boolean>(false);
+
+  // Générateur de lien vers le site (en attendant que l'application mobile soit en ligne)
+  const [composerSiteTarget, setComposerSiteTarget] = useState<
+    "current" | "infoperso" | "alphabette"
+  >("current");
+  const [composerSiteLinkCopied, setComposerSiteLinkCopied] = useState(false);
+  const [directPublishedBanner, setDirectPublishedBanner] = useState<{
+    title: string;
+    platform: string;
+    domain: string;
+    subdomain: string;
+  } | null>(null);
+
+  const resolvedComposerSiteOrigin =
+    composerSiteTarget === "infoperso"
+      ? "https://infoperso.fr"
+      : composerSiteTarget === "alphabette"
+      ? "https://alphabette.fr"
+      : typeof window !== "undefined"
+      ? window.location.origin
+      : "https://infoperso.fr";
+
+  const generatedComposerSiteLink = `${resolvedComposerSiteOrigin}/?shared_url=${encodeURIComponent(
+    inpUrl.trim() || "https://www.facebook.com/share/r/1dNEyMHG3u/"
+  )}&shared_title=${encodeURIComponent(
+    inpTitle.trim() || "Vidéo partagée sur le site"
+  )}&domain=${encodeURIComponent(inpDomain)}&subdomain=${encodeURIComponent(
+    inpSubdomain
+  )}&comment=${encodeURIComponent(
+    inpComment.trim() || "Partagée via lien vers le site"
+  )}&auto_publish=1`;
+
+  const handleCopyComposerSiteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedComposerSiteLink);
+    } catch {
+      // Fallback
+    }
+    setComposerSiteLinkCopied(true);
+    setTimeout(() => setComposerSiteLinkCopied(false), 2500);
+    showToast(
+      "🔗 Lien vers le site copié ! En l'ouvrant, la publication est créée directement sur le site."
+    );
+  };
 
   // Modals state
   const [openModal, setOpenModal] = useState<
@@ -817,6 +1185,73 @@ export default function App() {
     };
     window.addEventListener("online", handleOnline);
     return () => window.removeEventListener("online", handleOnline);
+  }, []);
+
+  // Auto-résolution en arrière-plan des vidéos Facebook (/share/v/, /share/r/, fb.watch) déjà enregistrées
+  useEffect(() => {
+    const fbVideosToHeal = orbitState.videos.filter((v) => {
+      const rl = (v.rawUrl || "").toLowerCase();
+      const isFb =
+        v.platform === "facebook" ||
+        rl.includes("facebook.com") ||
+        rl.includes("fb.watch");
+      if (!isFb || !v.rawUrl) return false;
+      const mp4 = v.mp4Url || "";
+      return (
+        !mp4.includes("fbcdn.net") ||
+        rl.includes("/share/v/") ||
+        rl.includes("/share/r/")
+      );
+    });
+    if (fbVideosToHeal.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const updates = new Map<
+        number,
+        { mp4Url?: string; title?: string; thumb?: string; rawUrl?: string }
+      >();
+      for (const vid of fbVideosToHeal.slice(0, 6)) {
+        if (!vid.rawUrl) continue;
+        try {
+          const resp = await fetch(
+            `/api/orbit/extract-video?url=${encodeURIComponent(vid.rawUrl)}`
+          );
+          if (!resp.ok) continue;
+          const info = await resp.json();
+          if (info && info.streamMp4Url && info.directExtracted) {
+            const hasGenericTitle =
+              !vid.title ||
+              vid.title.startsWith("Facebook Reel") ||
+              vid.title.startsWith("Vidéo Facebook") ||
+              vid.title.startsWith("Vidéo FACEBOOK") ||
+              vid.title.startsWith("Découverte —");
+            updates.set(vid.id, {
+              mp4Url: info.streamMp4Url,
+              rawUrl: info.resolvedUrl || vid.rawUrl,
+              title:
+                hasGenericTitle && info.title ? info.title : vid.title,
+              thumb: info.thumb || vid.thumb,
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (!cancelled && updates.size > 0) {
+        setOrbitState((prev) => ({
+          ...prev,
+          videos: prev.videos.map((v) => {
+            const patch = updates.get(v.id);
+            return patch ? { ...v, ...patch } : v;
+          }),
+        }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Real-time BroadcastChannel for Collaborative Jukebox across tabs (Idée 2)
@@ -919,16 +1354,25 @@ export default function App() {
     }
   };
 
-  // Fonctionnalité 17 : Enregistrement automatique dans watchedVideoIds (LocalStorage + State)
+  // Fonctionnalité 17 : Enregistrement automatique dans watchedVideoIds + Apprentissage Algorithmique des Goûts (+2% d'affinité sur le domaine visionné)
   const handleMarkVideoWatched = (videoId: number) => {
     setOrbitState((prev) => {
       const current = prev.watchedVideoIds || [];
       if (current.includes(videoId)) return prev;
       const next = [videoId, ...current];
       OrbitStorageService.saveWatchedVideoIds(next);
+      const watchedVid = prev.videos.find((v) => v.id === videoId);
+      const updatedDomains = watchedVid
+        ? prev.domains.map((d) =>
+            d.name === watchedVid.domain
+              ? { ...d, affinity: Math.min(100, d.affinity + 2) }
+              : d
+          )
+        : prev.domains;
       return {
         ...prev,
         watchedVideoIds: next,
+        domains: updatedDomains,
       };
     });
     setSyncQueue(
@@ -1183,29 +1627,125 @@ export default function App() {
     }
 
     const sharedUrl =
-      params.get("shared_url") || params.get("url") || params.get("text");
+      params.get("shared_url") ||
+      params.get("publish_url") ||
+      params.get("url") ||
+      params.get("text");
     const sharedTitle = params.get("shared_title") || params.get("title") || "";
+    const sharedDomain = params.get("domain") || "";
+    const sharedSubdomain = params.get("subdomain") || "";
+    const sharedComment = params.get("comment") || "";
+    const autoPublish = params.get("auto_publish") === "1";
     const sharedSource = params.get("source") as
       | "telegram"
       | "discord"
       | "whatsapp"
       | null;
     if (sharedUrl) {
-      setActivePage("p1");
-      setComposerOpen(true);
-      setInpUrl(sharedUrl);
-      if (sharedTitle) {
-        setInpTitle(sharedTitle);
-      }
-      if (sharedSource) {
-        setInpImportedVia(sharedSource);
-      }
-      handleLocalClassify(sharedUrl, sharedTitle);
-      triggerGeminiClassification(sharedUrl, sharedTitle);
-      showToast(
-        "Vidéo reçue depuis une application externe ! Vérifiez la fenêtre de publication."
+      const classified = classifyTextToDomain(
+        `${sharedUrl} ${sharedTitle} ${sharedComment}`
       );
-      window.history.replaceState({}, document.title, window.location.pathname);
+      const targetDomain =
+        sharedDomain && DEFAULT_DOMAINS.some((d) => d.name === sharedDomain)
+          ? sharedDomain
+          : classified.domain;
+      const foundDom =
+        DEFAULT_DOMAINS.find((d) => d.name === targetDomain) ||
+        DEFAULT_DOMAINS[0];
+      const targetSubdomain =
+        sharedSubdomain && foundDom.subs.includes(sharedSubdomain)
+          ? sharedSubdomain
+          : classified.subdomain || foundDom.subs[0];
+
+      if (autoPublish) {
+        // Création directe de la publication sur le site depuis le lien partagé
+        const parsed = parseVideoUrl(
+          sharedUrl,
+          sharedTitle || `Vidéo partagée sur le site`
+        );
+        const resolvedTitle =
+          sharedTitle.trim() ||
+          `Publication directe (${parsed.platform.toUpperCase()}) — ${targetSubdomain}`;
+        const newVideoId = Date.now();
+        const isFb =
+          parsed.platform === "facebook" ||
+          sharedUrl.toLowerCase().includes("facebook.com") ||
+          sharedUrl.toLowerCase().includes("fb.watch");
+        const newDirectVideo: OrbitVideo = {
+          id: newVideoId,
+          title: resolvedTitle,
+          platform: parsed.platform,
+          ratio: parsed.ratio,
+          domain: targetDomain,
+          subdomain: targetSubdomain,
+          user: orbitState.profile.name,
+          isFriend: true,
+          comment:
+            sharedComment.trim() ||
+            "Publication créée directement sur le site depuis un lien de partage !",
+          score: 9.8,
+          votes: 1,
+          hoursAgo: 0,
+          youtubeId: parsed.youtubeId,
+          rawUrl: sharedUrl,
+          thumb: parsed.thumb,
+          mp4Url: isFb
+            ? `/api/orbit/proxy-mp4?url=${encodeURIComponent(sharedUrl)}`
+            : undefined,
+          isScout: true,
+          scoutRank: 1,
+          durationMinutes: parsed.ratio === "9-16" ? 3 : 12,
+          archiveEras: ["live", "week"],
+          certifiedArchive: true,
+          importedVia: sharedSource || "clipboard",
+          reactionCounts: { pepite: 1, choc: 0, genial: 0, beau: 0, coeur: 0 },
+          highlightMoments: [],
+          commentsList: [],
+        };
+
+        window.dispatchEvent(new CustomEvent("orbit:stop-all-inline-videos"));
+        setOrbitState((prev) => ({
+          ...prev,
+          creatorPortfolioMode: false,
+          videos: [
+            newDirectVideo,
+            ...prev.videos.filter((v) => v.rawUrl !== sharedUrl),
+          ],
+        }));
+        setDirectPublishedBanner({
+          title: resolvedTitle,
+          platform: parsed.platform.toUpperCase(),
+          domain: targetDomain,
+          subdomain: targetSubdomain,
+        });
+        setProfileTab("wall");
+        setActivePage("p2");
+        showToast(
+          `✓ Lien vers le site détecté : publication « ${resolvedTitle} » créée directement sur le site !`
+        );
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else {
+        setActivePage("p1");
+        setComposerOpen(true);
+        setInpUrl(sharedUrl);
+        setInpDomain(targetDomain);
+        setInpSubdomain(targetSubdomain);
+        if (sharedTitle) {
+          setInpTitle(sharedTitle);
+        }
+        if (sharedComment) {
+          setInpComment(sharedComment);
+        }
+        if (sharedSource) {
+          setInpImportedVia(sharedSource);
+        }
+        handleLocalClassify(sharedUrl, sharedTitle);
+        triggerGeminiClassification(sharedUrl, sharedTitle);
+        showToast(
+          "Lien vidéo reçu sur le site ! Cliquez sur « Créer la publication sur le site » pour publier."
+        );
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
     } else if (
       navigator.clipboard &&
       typeof navigator.clipboard.readText === "function"
@@ -1350,18 +1890,134 @@ export default function App() {
     return null;
   };
 
-  // Publish Video
+  // Extraire & Télécharger en MP4 une vidéo Facebook / Reel / TikTok / Instagram
+  const handleExtractMp4FromUrl = async (overrideUrl?: string) => {
+    const target = (overrideUrl ?? inpUrl).trim();
+    if (!target) {
+      showToast(
+        "Collez d'abord un lien vidéo Facebook, Reel ou TikTok (ex: https://www.facebook.com/share/r/1dNEyMHG3u/)."
+      );
+      return;
+    }
+    if (overrideUrl) {
+      setInpUrl(overrideUrl);
+    }
+    setIsExtractingVideo(true);
+    setAiStatusText(
+      "Extraction du flux vidéo MP4 (Facebook Reels / TikTok CDN) en cours..."
+    );
+
+    try {
+      const res = await fetch(
+        `/api/orbit/extract-video?url=${encodeURIComponent(target)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setExtractedMp4Info({
+          streamMp4Url: data.streamMp4Url,
+          downloadMp4Url: data.downloadMp4Url,
+          directExtracted: Boolean(data.directExtracted),
+          title: data.title || "Facebook Reel MP4",
+          resolvedUrl: data.resolvedUrl || target,
+          ratio: data.ratio === "16-9" ? "16-9" : "9-16",
+          note: data.note,
+        });
+        if (!inpTitle && data.title) {
+          setInpTitle(data.title);
+        }
+        handleLocalClassify(data.resolvedUrl || target, data.title || inpTitle);
+        setAiStatusText(
+          data.directExtracted
+            ? "✓ Flux MP4 direct extrait ! Vous pouvez télécharger le .MP4 ou publier directement."
+            : "✓ Lecteur MP4 prêt ! Vous pouvez publier directement ou importer votre fichier .MP4 téléchargé."
+        );
+        showToast(
+          "📥 Vidéo extraite en MP4 ! Prévisualisez-la, téléchargez-la ou publiez-la dans le Flux."
+        );
+      } else {
+        showToast("Impossible d'extraire ce lien pour le moment.");
+      }
+    } catch {
+      showToast("Erreur réseau lors de l'extraction MP4.");
+    } finally {
+      setIsExtractingVideo(false);
+    }
+  };
+
+  // Importer un fichier .MP4 téléchargé depuis l'appareil de l'utilisateur
+  const handleLocalMp4FileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const previewUrl = URL.createObjectURL(file);
+    setUploadedMp4Blob(file);
+    setUploadedMp4PreviewUrl(previewUrl);
+    setUploadedMp4FileName(file.name);
+
+    const cleanName = file.name
+      .replace(/\.(mp4|webm|mov|mkv)$/i, "")
+      .replace(/[_-]+/g, " ")
+      .trim();
+    if (!inpTitle && cleanName) {
+      setInpTitle(`Vidéo MP4 · ${cleanName}`);
+    }
+    if (!inpUrl) {
+      setInpUrl("https://www.facebook.com/share/r/1dNEyMHG3u/");
+    }
+
+    // Générer automatiquement une vignette et détecter le ratio (9:16 vs 16:9) depuis la 1re seconde de la vidéo
+    const tempVideo = document.createElement("video");
+    tempVideo.preload = "metadata";
+    tempVideo.muted = true;
+    tempVideo.playsInline = true;
+    tempVideo.src = previewUrl;
+    tempVideo.onloadedmetadata = () => {
+      const isVertical = tempVideo.videoHeight >= tempVideo.videoWidth;
+      setUploadedMp4Ratio(isVertical ? "9-16" : "16-9");
+      tempVideo.currentTime = Math.min(1, (tempVideo.duration || 2) * 0.2);
+    };
+    tempVideo.onseeked = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = tempVideo.videoWidth || 480;
+        canvas.height = tempVideo.videoHeight || 854;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+          if (dataUrl && dataUrl.startsWith("data:image")) {
+            setUploadedMp4Thumb(dataUrl);
+          }
+        }
+      } catch {
+        // ignore canvas error
+      }
+    };
+
+    setAiStatusText(
+      `✓ Fichier vidéo local "${file.name}" (${(
+        file.size /
+        (1024 * 1024)
+      ).toFixed(1)} Mo) prêt à être publié en lecture MP4 native !`
+    );
+    showToast(
+      `📂 Fichier "${file.name}" chargé ! Cliquez sur « Publier dans le Flux » pour le poster.`
+    );
+  };
+
+  // Publish Video (Supporte les liens YouTube/TikTok/Instagram/Facebook + l'Extracteur MP4 + les fichiers .MP4 téléchargés)
   const handlePublishVideo = async (e: React.FormEvent) => {
     e.preventDefault();
     let rawUrl = inpUrl.trim();
     let finalTitle = inpTitle.trim();
     let finalDomain = inpDomain;
     let finalSubdomain = inpSubdomain;
-    let oembedThumb = "";
+    let oembedThumb = uploadedMp4Thumb || "";
+    let resolvedMp4Stream = extractedMp4Info?.streamMp4Url || "";
 
-    if (!rawUrl && !finalTitle) {
+    if (!rawUrl && !finalTitle && !uploadedMp4Blob) {
       showToast(
-        "Veuillez saisir un lien vidéo (Facebook, YouTube, TikTok, Insta...) ou un titre."
+        "Veuillez saisir un lien vidéo (Facebook, YouTube, TikTok, Insta...) ou importer un fichier .MP4."
       );
       return;
     }
@@ -1394,8 +2050,8 @@ export default function App() {
       }
     }
 
-    // Vérifier systématiquement la disponibilité de la vidéo et résoudre les liens courts (Facebook, YouTube, TikTok, Instagram)
-    if (rawUrl) {
+    // Vérifier la disponibilité et extraire le flux MP4 si disponible
+    if (rawUrl && !uploadedMp4Blob) {
       try {
         const oembedRes = await fetch(
           `/api/orbit/oembed?url=${encodeURIComponent(rawUrl)}`
@@ -1420,8 +2076,11 @@ export default function App() {
           if (!finalTitle && meta.title) {
             finalTitle = meta.title;
           }
-          if (meta.thumb) {
+          if (!oembedThumb && meta.thumb) {
             oembedThumb = meta.thumb;
+          }
+          if (!resolvedMp4Stream && meta.mp4Url) {
+            resolvedMp4Stream = meta.mp4Url;
           }
         }
       } catch {
@@ -1439,36 +2098,75 @@ export default function App() {
       }
     }
 
+    const newVideoId = Date.now();
+    let hasLocalBlob = false;
+    if (uploadedMp4Blob) {
+      const savedBlobUrl = await OrbitStorageService.saveLocalVideoBlob(
+        newVideoId,
+        uploadedMp4Blob
+      );
+      resolvedMp4Stream = savedBlobUrl;
+      hasLocalBlob = true;
+    } else if (
+      !resolvedMp4Stream &&
+      (rawUrl.toLowerCase().includes("facebook.com") ||
+        rawUrl.toLowerCase().includes("fb.watch"))
+    ) {
+      resolvedMp4Stream = `/api/orbit/proxy-mp4?url=${encodeURIComponent(
+        rawUrl
+      )}`;
+    }
+
     const resolvedTitle =
       finalTitle ||
-      (rawUrl.toLowerCase().includes("facebook") ||
-      rawUrl.toLowerCase().includes("fb.watch")
-        ? `Vidéo Facebook partagée — ${finalSubdomain}`
+      (uploadedMp4FileName
+        ? `Vidéo MP4 · ${uploadedMp4FileName.replace(/\.(mp4|webm|mov)$/i, "")}`
+        : rawUrl.toLowerCase().includes("facebook") ||
+          rawUrl.toLowerCase().includes("fb.watch")
+        ? `Facebook Reel MP4 — ${finalSubdomain}`
         : `Découverte — ${finalSubdomain}`);
-    const parsed = parseVideoUrl(rawUrl || "https://youtube.com", resolvedTitle);
+    const parsed = parseVideoUrl(
+      rawUrl || "https://www.facebook.com/share/r/1dNEyMHG3u/",
+      resolvedTitle
+    );
+    const finalPlatform: OrbitVideo["platform"] = uploadedMp4Blob
+      ? rawUrl.toLowerCase().includes("tiktok")
+        ? "tiktok"
+        : rawUrl.toLowerCase().includes("instagram")
+        ? "instagram"
+        : "facebook"
+      : parsed.platform;
+    const finalRatio: OrbitVideo["ratio"] = uploadedMp4Blob
+      ? uploadedMp4Ratio
+      : extractedMp4Info?.ratio || parsed.ratio;
     const unlockAt = isTimeCapsule
       ? Date.now() + capsuleDelayMinutes * 60 * 1000
       : undefined;
 
     const newVideo: OrbitVideo = {
-      id: Date.now(),
+      id: newVideoId,
       title: resolvedTitle,
-      platform: parsed.platform,
-      ratio: parsed.ratio,
+      platform: finalPlatform,
+      ratio: finalRatio,
       domain: finalDomain,
       subdomain: finalSubdomain,
       user: orbitState.profile.name,
       isFriend: true,
-      comment: inpComment.trim() || "Je partage cette pépite sur Ma Page Orbit !",
-      score: 9.6,
+      comment:
+        inpComment.trim() ||
+        "Vidéo téléchargée et partagée en MP4 natif sur Ma Page Orbit !",
+      score: 9.8,
       votes: 1,
       hoursAgo: 0,
       youtubeId: parsed.youtubeId,
-      rawUrl: rawUrl || `https://www.youtube.com/watch?v=${parsed.youtubeId}`,
+      rawUrl:
+        rawUrl || `https://www.facebook.com/share/r/1dNEyMHG3u/`,
       thumb: oembedThumb || parsed.thumb,
+      mp4Url: resolvedMp4Stream || undefined,
+      hasLocalMp4Blob: hasLocalBlob,
       isScout: true,
       scoutRank: 1,
-      durationMinutes: parsed.ratio === "9-16" ? 3 : 16,
+      durationMinutes: finalRatio === "9-16" ? 3 : 16,
       challengeTag: inpChallengeTag || undefined,
       unlockAt,
       archiveEras: ["live", "week"],
@@ -1479,10 +2177,11 @@ export default function App() {
         radius50km: true,
         region: true,
         areaBadge: "Ma Zone Locale (< 10 km)",
-        localScore: 9.7,
-        localVoters: 12,
+        localScore: 9.8,
+        localVoters: 14,
       },
-      sourceConnectorId: parsed.platform === "facebook" ? "facebook" : undefined,
+      sourceConnectorId:
+        finalPlatform === "facebook" ? "facebook" : undefined,
       importedVia: inpImportedVia || "clipboard",
       reactionCounts: { pepite: 1, choc: 0, genial: 0, beau: 0, coeur: 0 },
       highlightMoments: [],
@@ -1497,7 +2196,7 @@ export default function App() {
         scoutPoints: (prev.profile.scoutPoints || 145) + 15,
         scoutBadges: (prev.profile.scoutBadges || 4) + 1,
       },
-      videos: [newVideo, ...prev.videos],
+      videos: [newVideo, ...prev.videos.filter((v) => v.id !== newVideoId)],
       domains: prev.domains.map((d) =>
         d.name === finalDomain
           ? { ...d, affinity: Math.min(100, d.affinity + 2) }
@@ -1524,6 +2223,12 @@ export default function App() {
     setInpComment("");
     setInpChallengeTag("");
     setInpImportedVia(undefined);
+    setExtractedMp4Info(null);
+    setUploadedMp4Blob(null);
+    setUploadedMp4PreviewUrl("");
+    setUploadedMp4FileName("");
+    setUploadedMp4Thumb("");
+    window.dispatchEvent(new CustomEvent("orbit:stop-all-inline-videos"));
     setIsTimeCapsule(false);
     setComposerOpen(false);
     setProfileTab("wall");
@@ -1536,7 +2241,7 @@ export default function App() {
       );
     } else {
       showToast(
-        `✓ Vidéo ${parsed.platform.toUpperCase()} intégrée en tête de Ma Page (Page 2) et dans le Flux (${finalDomain} › ${finalSubdomain}) !`
+        `✓ Vidéo ${finalPlatform.toUpperCase()} publiée en lecture MP4 directe en tête de Ma Page (Page 2) et dans le Flux !`
       );
     }
   };
@@ -1723,8 +2428,9 @@ export default function App() {
     }
   };
 
-  // Rate video + Fonctionnalité 17 : Enregistrer automatiquement dans watchedVideoIds
+  // Rate video + Fonctionnalité 17 : Enregistrer dans watchedVideoIds + Renforcement Algorithmique des Goûts
   const handleRateVideo = (videoId: number, rating: number) => {
+    const targetVideo = orbitState.videos.find((v) => v.id === videoId);
     setOrbitState((prev) => {
       const target = prev.videos.find((v) => v.id === videoId);
       if (!target) return prev;
@@ -1736,6 +2442,8 @@ export default function App() {
         ? currentWatched
         : [videoId, ...currentWatched];
       OrbitStorageService.saveWatchedVideoIds(nextWatched);
+
+      const deltaAffinity = rating >= 9 ? 3 : rating >= 8 ? 1 : -2;
 
       return {
         ...prev,
@@ -1750,8 +2458,11 @@ export default function App() {
             : v
         ),
         domains: prev.domains.map((d) =>
-          d.name === target.domain && rating >= 8
-            ? { ...d, affinity: Math.min(100, d.affinity + 1) }
+          d.name === target.domain
+            ? {
+                ...d,
+                affinity: Math.max(20, Math.min(100, d.affinity + deltaAffinity)),
+              }
             : d
         ),
       };
@@ -1759,6 +2470,14 @@ export default function App() {
     setSyncQueue(
       OrbitStorageService.enqueueMutation("RATE_VIDEO", { videoId, rating })
     );
+    // Si l'utilisateur attribue un coup de cœur (>= 9.5) et que l'Auto-Pilote est actif, lancer une découverte sur ce goût
+    if (rating >= 9.5 && algoAutoPilot && targetVideo && !isAlgoHunting) {
+      void runAlgorithmicDiscovery({
+        silent: false,
+        customSignalVideo: targetVideo,
+        count: 2,
+      });
+    }
   };
 
   // Add comment + Fonctionnalité 19 : Support Débat Structuré (Pour / Nuance / Source)
@@ -2011,20 +2730,27 @@ export default function App() {
     showToast("Time-Capsule déverrouillée et propulsée dans le Flux !");
   };
 
-  // Repost to personal wall
+  // Repost / Créer une publication directement sur le site
   const handleRepost = (orig: OrbitVideo, customNote: string) => {
+    window.dispatchEvent(new CustomEvent("orbit:stop-all-inline-videos"));
     const copy: OrbitVideo = {
       ...orig,
       id: Date.now(),
       user: orbitState.profile.name,
+      isFriend: true,
       comment: customNote || orig.comment,
-      hoursAgo: 1,
+      hoursAgo: 0,
     };
     setOrbitState((prev) => ({
       ...prev,
+      creatorPortfolioMode: false,
       videos: [copy, ...prev.videos],
     }));
-    showToast("Vidéo partagée sur votre Page personnelle !");
+    setProfileTab("wall");
+    setActivePage("p2");
+    showToast(
+      "✓ Publication créée directement sur le site (Ma Page & Le Flux) !"
+    );
   };
 
   // Toggle secret domain
@@ -2195,8 +2921,242 @@ export default function App() {
     showToast(`✓ ${payload.proofText} ! Vos 4 pages et vos 15 domaines ont été recalculés.`);
   };
 
+  // Moteur Algorithmique Autonome : Chasse en direct de nouvelles vidéos sur le web selon les goûts de l'utilisateur
+  const runAlgorithmicDiscovery = async (options?: {
+    silent?: boolean;
+    forceKeyword?: string;
+    customSignalVideo?: OrbitVideo;
+    count?: number;
+  }) => {
+    if (isAlgoHunting) return;
+    setIsAlgoHunting(true);
+
+    try {
+      const watchedSet = new Set(orbitState.watchedVideoIds || []);
+      const signalVideos = [
+        ...(options?.customSignalVideo ? [options.customSignalVideo] : []),
+        ...orbitState.videos.filter(
+          (v) =>
+            watchedSet.has(v.id) ||
+            (v.isFriend && v.hoursAgo <= 12) ||
+            v.score >= 9.7
+        ),
+      ].slice(0, 5);
+
+      const effectiveKeywords = options?.forceKeyword
+        ? [options.forceKeyword, ...algoCustomKeywords]
+        : algoCustomKeywords;
+
+      const excludeYoutubeIds = orbitState.videos
+        .map((v) => v.youtubeId)
+        .filter(Boolean);
+
+      const response = await fetch("/api/orbit/auto-discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domains: orbitState.domains.map((d) => ({
+            name: d.name,
+            affinity: d.affinity,
+            subs: d.subs,
+            keywords: d.keywords,
+          })),
+          recentSignals: signalVideos.map((v) => ({
+            title: v.title,
+            domain: v.domain,
+            subdomain: v.subdomain,
+            user: v.user,
+            score: v.score,
+          })),
+          customKeywords: effectiveKeywords,
+          explorationRate: radarExploration,
+          excludeYoutubeIds,
+          count: options?.count || 4,
+        }),
+      });
+
+      if (!response.ok) {
+        if (!options?.silent) {
+          showToast(
+            "Le moteur algorithmique n'a pas pu joindre les sources externes pour le moment."
+          );
+        }
+        return;
+      }
+
+      const data = await response.json();
+      const rawDiscovered: Array<{
+        youtubeId: string;
+        title: string;
+        author: string;
+        durationMinutes: number;
+        ratio: "16-9" | "9-16";
+        thumb: string;
+        domain: string;
+        subdomain: string;
+        affinityScore: number;
+        reason: string;
+        queryUsed: string;
+      }> = Array.isArray(data?.videos) ? data.videos : [];
+
+      if (data?.tasteSummary) {
+        setAlgoLastHuntReport({
+          timestamp: new Date().toLocaleTimeString("fr-FR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          discoveredCount: rawDiscovered.length,
+          queriesExecuted: Array.isArray(data.tasteSummary.queriesExecuted)
+            ? data.tasteSummary.queriesExecuted
+            : [],
+          topPillars: Array.isArray(data.tasteSummary.topPillars)
+            ? data.tasteSummary.topPillars
+            : [],
+        });
+      }
+
+      if (rawDiscovered.length === 0) {
+        if (!options?.silent) {
+          showToast(
+            "✓ Algorithme à jour : toutes les meilleures pépites correspondant à vos goûts actuels sont déjà dans votre flux."
+          );
+        }
+        return;
+      }
+
+      const baseId = Date.now();
+      const newAlgoVideos: OrbitVideo[] = rawDiscovered.map((item, idx) => ({
+        id: baseId + idx + 1,
+        title: item.title,
+        platform: "youtube",
+        ratio: item.ratio || "16-9",
+        domain: item.domain || "Sciences & Tech",
+        subdomain: item.subdomain || "Découverte",
+        user: item.author || "Auto-Scout Orbit",
+        isFriend: false,
+        comment: item.reason,
+        score: Number(
+          Math.min(9.9, 9.2 + (item.affinityScore - 85) * 0.05).toFixed(1)
+        ),
+        votes: 45 + idx * 19,
+        hoursAgo: 0,
+        youtubeId: item.youtubeId,
+        rawUrl: `https://www.youtube.com/watch?v=${item.youtubeId}`,
+        thumb:
+          item.thumb || `https://i.ytimg.com/vi/${item.youtubeId}/hqdefault.jpg`,
+        isScout: true,
+        scoutRank: 1,
+        durationMinutes: item.durationMinutes || 12,
+        archiveEras: ["live", "week"],
+        certifiedArchive: true,
+        algoDiscovered: true,
+        algoAffinityMatch: item.affinityScore || 96,
+        algoReason: item.reason,
+        algoQueryUsed: item.queryUsed,
+        commentsList: [
+          {
+            author: "Orbit_AutoScout",
+            text: `${item.reason} (Requête autonome : « ${item.queryUsed} »).`,
+            stance: "source",
+            verifiedLabel: `Affinité ${item.affinityScore || 96}%`,
+          },
+        ],
+      }));
+
+      setOrbitState((prev) => {
+        const existingYt = new Set(prev.videos.map((v) => v.youtubeId));
+        const uniqueNew = newAlgoVideos.filter(
+          (nv) => !existingYt.has(nv.youtubeId)
+        );
+        if (uniqueNew.length === 0) return prev;
+        return {
+          ...prev,
+          videos: [...uniqueNew, ...prev.videos],
+        };
+      });
+
+      if (!options?.silent) {
+        showToast(
+          `⚡ Algorithme Orbit : ${newAlgoVideos.length} nouvelle(s) vidéo(s) trouvée(s) automatiquement selon vos goûts !`
+        );
+      }
+    } catch {
+      if (!options?.silent) {
+        showToast("Chasse algorithmique interrompue (mode hors-ligne).");
+      }
+    } finally {
+      setIsAlgoHunting(false);
+    }
+  };
+
+  // Auto-exécution au démarrage : l'algorithme va chercher de lui-même des vidéos selon les goûts de l'utilisateur
+  useEffect(() => {
+    if (algoInitialBootDoneRef.current) return;
+    algoInitialBootDoneRef.current = true;
+    if (!algoAutoPilot) return;
+
+    const timer = window.setTimeout(() => {
+      void runAlgorithmicDiscovery({ silent: true, count: 3 });
+    }, 1400);
+
+    return () => window.clearTimeout(timer);
+  }, [algoAutoPilot]);
+
+  const handleAdjustDomainAffinity = (domainId: number, delta: number) => {
+    setOrbitState((prev) => ({
+      ...prev,
+      domains: prev.domains.map((d) =>
+        d.id === domainId
+          ? {
+              ...d,
+              affinity: Math.max(15, Math.min(100, d.affinity + delta)),
+            }
+          : d
+      ),
+    }));
+  };
+
+  const handleAddAlgoKeyword = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = algoKeywordInput.trim();
+    if (!cleaned) return;
+    const next = Array.from(new Set([cleaned, ...algoCustomKeywords])).slice(
+      0,
+      10
+    );
+    setAlgoCustomKeywords(next);
+    try {
+      window.localStorage.setItem(
+        "ORBIT_ALGO_KEYWORDS_V1",
+        JSON.stringify(next)
+      );
+    } catch {
+      // ignore
+    }
+    setAlgoKeywordInput("");
+    void runAlgorithmicDiscovery({
+      silent: false,
+      forceKeyword: cleaned,
+      count: 3,
+    });
+  };
+
+  const handleRemoveAlgoKeyword = (kw: string) => {
+    const next = algoCustomKeywords.filter((k) => k !== kw);
+    setAlgoCustomKeywords(next);
+    try {
+      window.localStorage.setItem(
+        "ORBIT_ALGO_KEYWORDS_V1",
+        JSON.stringify(next)
+      );
+    } catch {
+      // ignore
+    }
+  };
+
   // Fonctionnalité 3 : Mode 'Découverte Automatique par IA' (Générer mon ADN sur-mesure : Tech/IA, Photo/Light Painting, Rap Boom-Bap, Astronomie/Solaire)
   const handleGenerateCustomAiDna = () => {
+    void runAlgorithmicDiscovery({ silent: false, count: 4 });
     const syncTimeLabel = new Date().toLocaleTimeString("fr-FR", {
       hour: "2-digit",
       minute: "2-digit",
@@ -2720,21 +3680,23 @@ export default function App() {
   const hideWatched = Boolean(orbitState.hideWatchedVideos);
 
   // Separate unlocked videos vs locked Time-Capsules (Idée 9)
-  const unlockedVideos = useMemo(
-    () =>
-      orbitState.videos.filter(
-        (v) => !v.unlockAt || v.unlockAt <= nowTimestamp
-      ),
-    [orbitState.videos, nowTimestamp]
-  );
+  const unlockedVideos = useMemo(() => {
+    const seenIds = new Set<number>();
+    return orbitState.videos.filter((v) => {
+      if (!v || typeof v.id !== "number" || seenIds.has(v.id)) return false;
+      seenIds.add(v.id);
+      return !v.unlockAt || v.unlockAt <= nowTimestamp;
+    });
+  }, [orbitState.videos, nowTimestamp]);
 
-  const lockedTimeCapsules = useMemo(
-    () =>
-      orbitState.videos.filter(
-        (v) => v.unlockAt && v.unlockAt > nowTimestamp
-      ),
-    [orbitState.videos, nowTimestamp]
-  );
+  const lockedTimeCapsules = useMemo(() => {
+    const seenIds = new Set<number>();
+    return orbitState.videos.filter((v) => {
+      if (!v || typeof v.id !== "number" || seenIds.has(v.id)) return false;
+      seenIds.add(v.id);
+      return Boolean(v.unlockAt && v.unlockAt > nowTimestamp);
+    });
+  }, [orbitState.videos, nowTimestamp]);
 
   // Filtered Feed videos (Page 1) — Intègre Fonctionnalité 17 (Anti-Déjà-Vu) & Fonctionnalité 20 (Sélection QR scannée)
   const filteredFeedVideos = useMemo(() => {
@@ -2743,7 +3705,7 @@ export default function App() {
       const setIds = new Set(scannedPlaylistBanner.videoIds);
       const matched = list.filter((v) => setIds.has(v.id));
       if (matched.length > 0) {
-        return matched;
+        list = matched;
       }
     }
     if (hideWatched) {
@@ -2760,13 +3722,73 @@ export default function App() {
           v.comment.toLowerCase().includes(q)
       );
     }
-    if (feedFilter === "friends") list = list.filter((v) => v.isFriend);
+    if (feedFilter === "algo") {
+      const domainAffinityMap = new Map(
+        orbitState.domains.map((d) => [d.name, d.affinity])
+      );
+      list = list
+        .filter(
+          (v) =>
+            v.algoDiscovered ||
+            (domainAffinityMap.get(v.domain) || 75) >= 88
+        )
+        .sort((a, b) => {
+          const aAlgo = a.algoDiscovered ? 1 : 0;
+          const bAlgo = b.algoDiscovered ? 1 : 0;
+          if (aAlgo !== bAlgo) return bAlgo - aAlgo;
+          const aAff =
+            a.algoAffinityMatch || domainAffinityMap.get(a.domain) || 80;
+          const bAff =
+            b.algoAffinityMatch || domainAffinityMap.get(b.domain) || 80;
+          return bAff - aAff;
+        });
+    } else if (feedFilter === "friends") list = list.filter((v) => v.isFriend);
     else if (feedFilter === "youtube")
       list = list.filter((v) => v.platform === "youtube");
+    else if (feedFilter === "tiktok")
+      list = list.filter((v) => v.platform === "tiktok");
+    else if (feedFilter === "instagram")
+      list = list.filter((v) => v.platform === "instagram");
+    else if (feedFilter === "facebook")
+      list = list.filter((v) => v.platform === "facebook");
     else if (feedFilter === "vertical")
       list = list.filter((v) => v.ratio === "9-16");
     else if (feedFilter === "top95") list = list.filter((v) => v.score >= 9.5);
-    return list;
+
+    if (activeSpaceDomain !== "Tous") {
+      const spaceKey = activeSpaceDomain.toLowerCase();
+      list = list.filter((v) => {
+        const d = v.domain.toLowerCase();
+        const s = v.subdomain.toLowerCase();
+        const t = v.title.toLowerCase();
+        if (spaceKey === "découverte") return v.isScout || v.score >= 9.6;
+        if (spaceKey === "débats")
+          return (
+            d.includes("culture") ||
+            d.includes("science") ||
+            d.includes("histoire") ||
+            v.commentsList.length > 0
+          );
+        if (spaceKey === "technologie")
+          return d.includes("tech") || d.includes("dev") || d.includes("numérique") || t.includes("ia");
+        if (spaceKey === "histoire")
+          return d.includes("histoire") || d.includes("architecture") || s.includes("histoire");
+        if (spaceKey === "culture")
+          return d.includes("culture") || d.includes("cinéma") || d.includes("musique") || d.includes("arts");
+        if (spaceKey === "sport") return d.includes("sport") || d.includes("bien-être");
+        if (spaceKey === "sciences") return d.includes("science") || d.includes("nature");
+        if (spaceKey === "nature") return d.includes("nature") || d.includes("artisanat");
+        return d.includes(spaceKey) || s.includes(spaceKey);
+      });
+    }
+
+    // Garantir l'unicité stricte des ID
+    const seenIds = new Set<number>();
+    return list.filter((v) => {
+      if (!v || typeof v.id !== "number" || seenIds.has(v.id)) return false;
+      seenIds.add(v.id);
+      return true;
+    });
   }, [
     unlockedVideos,
     searchQuery,
@@ -2774,6 +3796,7 @@ export default function App() {
     hideWatched,
     watchedIds,
     scannedPlaylistBanner,
+    activeSpaceDomain,
   ]);
 
   // Filtered Profile videos (Page 2) — Vos vidéos partagées (Facebook, YouTube, TikTok, Instagram) apparaissent toujours en tête de Ma Page
@@ -2816,7 +3839,14 @@ export default function App() {
         .map((d) => d.name);
       list = list.filter((v) => secretNames.includes(v.domain));
     }
-    return list;
+
+    // Garantir l'unicité stricte des ID sur Ma Page
+    const seenIds = new Set<number>();
+    return list.filter((v) => {
+      if (!v || typeof v.id !== "number" || seenIds.has(v.id)) return false;
+      seenIds.add(v.id);
+      return true;
+    });
   }, [
     unlockedVideos,
     lockedTimeCapsules,
@@ -3258,15 +4288,13 @@ export default function App() {
                 : "w-full aspect-video max-h-[76vh]"
             }`}
           >
-            <iframe
+            <UniversalVideoPlayer
               key={currentFocusVideo.id}
-              width="100%"
-              height="100%"
-              src={getVideoEmbedConfig(currentFocusVideo).embedUrl}
-              title={currentFocusVideo.title}
-              frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
+              video={currentFocusVideo}
+              playing={true}
+              controls={true}
+              showTopBar={true}
+              onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
               className="w-full h-full"
             />
           </div>
@@ -3321,9 +4349,9 @@ export default function App() {
           : "min-h-screen max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-[268px_1fr]"
       }
     >
-      {/* SIDEBAR / BOTTOM NAVIGATION — MASQUÉE PAR DÉFAUT EN MODE IMMERSIF, ACCESSIBLE À LA DEMANDE */}
+      {/* SIDEBAR / BOTTOM NAVIGATION — DESIGN ORBIT ("Explore · Apprends · Partage") */}
       <aside
-        className={`fixed bottom-0 left-0 right-0 h-14 lg:static lg:h-screen lg:sticky lg:top-0 z-40 flex lg:flex-col justify-between px-3 py-1.5 lg:p-5 transition-all duration-300 ${
+        className={`fixed bottom-0 left-0 right-0 h-14 lg:static lg:h-screen lg:sticky lg:top-0 z-40 flex lg:flex-col justify-between px-3 py-1.5 lg:p-4 lg:overflow-y-auto no-scrollbar transition-all duration-300 ${
           isVerticalImmersionActive && (!immersiveNavOpen || !immersiveUiVisible)
             ? "hidden pointer-events-none opacity-0"
             : cinemaMode
@@ -3332,7 +4360,7 @@ export default function App() {
         }`}
         style={{
           background: isVerticalImmersionActive
-            ? "rgba(9, 10, 15, 0.88)"
+            ? "rgba(6, 10, 19, 0.9)"
             : "var(--bg-surface)",
           backdropFilter: "var(--glass-heavy)",
           WebkitBackdropFilter: "var(--glass-heavy)",
@@ -3341,354 +4369,391 @@ export default function App() {
           boxShadow: "var(--specular-top)",
         }}
       >
-        <div className="w-full">
-          {/* Brand Header (Desktop) */}
+        <div className="w-full space-y-4">
+          {/* Brand Header (Desktop) — Orbit Ring Logo + "Explore · Apprends · Partage" */}
           <div
-            className="hidden lg:flex items-center justify-between gap-2 pb-5 mb-5"
+            className="hidden lg:flex items-center justify-between gap-2 pb-3.5"
             style={{ borderBottom: "1px solid var(--border)" }}
           >
-            <div className="flex items-center gap-3 min-w-0">
-              <div
-                className="w-10 h-10 rounded-2xl flex items-center justify-center font-black text-white text-lg relative shrink-0"
-                style={{
-                  background:
-                    "linear-gradient(135deg, var(--accent), var(--accent-2))",
-                  boxShadow:
-                    "inset 0 1px 0 0 rgba(255,255,255,0.35), 0 0 24px var(--accent-glow)",
-                }}
-              >
-                O
+            <button
+              type="button"
+              onClick={() => {
+                setActivePage("p1");
+                setActiveSpaceDomain("Tous");
+                setFeedFilter("all");
+                setFeedViewMode("grid");
+              }}
+              className="flex items-center gap-3 min-w-0 text-left cursor-pointer group"
+            >
+              {/* Orbit Planetary Ring Icon */}
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center relative shrink-0 bg-[#0b1325] border border-lime-400/30 shadow-[0_0_22px_rgba(163,230,53,0.28)]">
+                <svg
+                  viewBox="0 0 40 40"
+                  className="w-8 h-8 overflow-visible"
+                  fill="none"
+                >
+                  <defs>
+                    <linearGradient id="orbitRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#b4f82a" />
+                      <stop offset="55%" stopColor="#38bdf8" />
+                      <stop offset="100%" stopColor="#a3e635" />
+                    </linearGradient>
+                  </defs>
+                  <circle
+                    cx="20"
+                    cy="20"
+                    r="8.5"
+                    fill="rgba(56,189,248,0.18)"
+                    stroke="#38bdf8"
+                    strokeWidth="1.5"
+                  />
+                  <ellipse
+                    cx="20"
+                    cy="20"
+                    rx="16"
+                    ry="7.5"
+                    transform="rotate(-28 20 20)"
+                    stroke="url(#orbitRingGrad)"
+                    strokeWidth="2.6"
+                  />
+                  <circle cx="31" cy="14" r="2.2" fill="#b4f82a" />
+                </svg>
               </div>
               <div className="min-w-0">
-                <div className="text-xl font-black tracking-tight font-display">
+                <div className="text-xl font-black tracking-wider font-display text-white leading-none">
                   ORBIT
                 </div>
                 <div
-                  className="text-[11px] truncate"
+                  className="text-[10px] font-medium truncate mt-1"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  ⚡ {orbitState.profile.scoutPoints || 145} pts Éclaireur
+                  Explore · Apprends · Partage
                 </div>
               </div>
-            </div>
+            </button>
           </div>
 
-          {/* 5 Core Navigation Items */}
+          {/* Main Navigation Links (Desktop & Mobile Bottom Bar) */}
           <nav className="flex lg:flex-col justify-around lg:justify-start gap-1 w-full">
             {[
-              { id: "p1" as PageId, label: "Le Flux", badge: "P.1", icon: Zap },
               {
-                id: "p2" as PageId,
-                label: "Ma Page",
-                badge: "P.2",
-                icon: User,
+                key: "accueil",
+                id: "p1" as PageId,
+                label: "Accueil",
+                icon: Home,
+                isActive:
+                  activePage === "p1" &&
+                  feedViewMode === "grid" &&
+                  activeSpaceDomain === "Tous",
+                onSelect: () => {
+                  navigateToOrbitPage("p1");
+                  setActiveSpaceDomain("Tous");
+                  setFeedFilter("all");
+                  setFeedViewMode("grid");
+                  setImmersiveNavOpen(false);
+                },
               },
               {
-                id: "p3" as PageId,
-                label: "Le Panthéon",
-                badge: "P.3",
-                icon: Trophy,
-              },
-              {
+                key: "explorer",
                 id: "p4" as PageId,
-                label: "Le Radar",
-                badge: "P.4",
-                icon: Compass,
+                label: "Explorer",
+                icon: Search,
+                isActive: activePage === "p4" && feedViewMode === "grid",
+                onSelect: () => {
+                  navigateToOrbitPage("p4");
+                  setFeedViewMode("grid");
+                  setImmersiveNavOpen(false);
+                },
               },
               {
+                key: "videos",
+                id: "p1" as PageId,
+                label: "Vidéos",
+                icon: Play,
+                isActive: feedViewMode === "immersion",
+                onSelect: () => {
+                  setFeedViewMode((m) =>
+                    m === "immersion" ? "grid" : "immersion"
+                  );
+                  setImmersiveNavOpen(false);
+                },
+              },
+              {
+                key: "debats",
+                id: "p1" as PageId,
+                label: "Débats",
+                icon: MessageSquare,
+                isActive:
+                  activePage === "p1" && activeSpaceDomain === "Débats",
+                onSelect: () => {
+                  navigateToOrbitPage("p1");
+                  setActiveSpaceDomain("Débats");
+                  setFeedViewMode("grid");
+                  setImmersiveNavOpen(false);
+                },
+                desktopOnly: true,
+              },
+              {
+                key: "pantheon",
+                id: "p3" as PageId,
+                label: "Panthéon",
+                icon: Trophy,
+                isActive: activePage === "p3" && feedViewMode === "grid",
+                onSelect: () => {
+                  navigateToOrbitPage("p3");
+                  setFeedViewMode("grid");
+                  setImmersiveNavOpen(false);
+                },
+              },
+              {
+                key: "radar",
+                id: "p4" as PageId,
+                label: "Radar",
+                icon: Compass,
+                isActive: false,
+                onSelect: () => {
+                  navigateToOrbitPage("p4");
+                  setFeedViewMode("grid");
+                  setImmersiveNavOpen(false);
+                },
+                desktopOnly: true,
+              },
+              {
+                key: "portfolio",
+                id: "p2" as PageId,
+                label: "Portfolio",
+                icon: Briefcase,
+                isActive: activePage === "p2" && feedViewMode === "grid",
+                onSelect: () => {
+                  navigateToOrbitPage("p2");
+                  setFeedViewMode("grid");
+                  setImmersiveNavOpen(false);
+                },
+              },
+              {
+                key: "defis",
+                id: "p1" as PageId,
+                label: "Défis",
+                icon: Award,
+                isActive:
+                  activePage === "p1" && activeTopPanel === "challenges",
+                onSelect: () => {
+                  navigateToOrbitPage("p1");
+                  setFeedViewMode("grid");
+                  setActiveTopPanel((p) =>
+                    p === "challenges" ? null : "challenges"
+                  );
+                },
+                desktopOnly: true,
+              },
+              {
+                key: "importation",
                 id: "p5" as PageId,
-                label: "Réglage et Importation",
-                badge: "P.5",
-                icon: Link2,
+                label: "Importation",
+                icon: Upload,
+                isActive: activePage === "p5",
+                onSelect: () => {
+                  navigateToOrbitPage("p5");
+                  setFeedViewMode("grid");
+                  setImmersiveNavOpen(false);
+                },
               },
             ].map((item) => {
               const Icon = item.icon;
-              const isActive = activePage === item.id;
               return (
                 <button
-                  key={item.id}
+                  key={item.key}
                   type="button"
-                  onClick={() => {
-                    setActivePage(item.id);
-                    setFeedViewMode("grid");
-                    setImmersiveNavOpen(false);
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                  className={`flex flex-col lg:flex-row items-center gap-0.5 lg:gap-3 px-2 py-1.5 lg:px-3.5 lg:py-3 rounded-xl text-[10px] lg:text-sm font-semibold cursor-pointer transition-all flex-1 lg:flex-initial whitespace-nowrap shrink-0 ${
-                    isActive
-                      ? "bg-white/15 text-white"
+                  onClick={item.onSelect}
+                  className={`${
+                    item.desktopOnly ? "hidden lg:flex" : "flex"
+                  } flex-col lg:flex-row items-center gap-0.5 lg:gap-3 px-2 py-1.5 lg:px-3.5 lg:py-2.5 rounded-xl text-[10px] lg:text-[13px] font-semibold cursor-pointer transition-all flex-1 lg:flex-initial whitespace-nowrap shrink-0 ${
+                    item.isActive
+                      ? "orbit-nav-active text-white"
                       : "hover:bg-white/5 active:scale-95"
                   }`}
                   style={{
-                    color: isActive ? "#ffffff" : "var(--text-muted)",
-                    border: isActive
-                      ? "1px solid rgba(255,255,255,0.2)"
+                    color: item.isActive ? "#ffffff" : "var(--text-muted)",
+                    border: item.isActive
+                      ? undefined
                       : "1px solid transparent",
                   }}
                 >
-                  <Icon className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+                  <Icon
+                    className={`w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0 ${
+                      item.isActive ? "text-[#b4f82a]" : ""
+                    }`}
+                  />
                   <span>{item.label}</span>
-                  <span className="hidden lg:inline-block ml-auto text-[11px] font-mono-num opacity-80">
-                    {item.badge}
-                  </span>
                 </button>
               );
             })}
           </nav>
 
-          {/* Quick Action Buttons in Sidebar (Desktop) */}
+          {/* Section "Mes espaces" (Desktop) — Inspirée de la maquette Orbit */}
           <div
-            className="hidden lg:flex flex-col gap-2 mt-5 pt-5"
+            className="hidden lg:flex flex-col gap-1.5 pt-3.5"
             style={{ borderTop: "1px solid var(--border)" }}
           >
-            {/* Bascule Globale 4 Pages : Mode Immersion Reels vs Mode Grille */}
-            {activePage !== "p5" && (
-              <button
-                type="button"
-                onClick={() =>
-                  setFeedViewMode((m) => (m === "immersion" ? "grid" : "immersion"))
-                }
-                className="w-full py-2.5 px-3 rounded-xl text-xs font-extrabold text-white inline-flex items-center justify-between gap-2 cursor-pointer btn-couture whitespace-nowrap shrink-0"
-                style={{
-                  background:
-                    feedViewMode === "immersion"
-                      ? "linear-gradient(135deg, #0284c7, #5e35ff)"
-                      : "linear-gradient(135deg, #0f172a, #1e293b)",
-                  border: "1px solid rgba(56, 189, 248, 0.45)",
-                }}
+            <div className="flex items-center justify-between px-2 mb-1">
+              <span
+                className="text-[11px] font-semibold tracking-wide"
+                style={{ color: "var(--text-muted)" }}
               >
-                <span className="inline-flex items-center gap-1.5">
-                  {feedViewMode === "immersion" ? (
-                    <>
-                      <LayoutGrid className="w-3.5 h-3.5 text-cyan-300" />
-                      <span>🎛️ Mode Grille</span>
-                    </>
-                  ) : (
-                    <>
-                      <Smartphone className="w-3.5 h-3.5 text-cyan-300" />
-                      <span>📱 Mode Immersion Reels</span>
-                    </>
-                  )}
-                </span>
-                <span className="font-mono-num text-[10px] text-cyan-200">
-                  4 Pages
-                </span>
-              </button>
-            )}
+                Mes espaces
+              </span>
+              {activeSpaceDomain !== "Tous" && (
+                <button
+                  type="button"
+                  onClick={() => setActiveSpaceDomain("Tous")}
+                  className="text-[10px] font-bold text-[#b4f82a] hover:underline cursor-pointer"
+                >
+                  Tous
+                </button>
+              )}
+            </div>
+            {[
+              { name: "Découverte", color: "#34d399" },
+              { name: "Technologie", color: "#fb923c" },
+              { name: "Histoire", color: "#38bdf8" },
+              { name: "Culture", color: "#2dd4bf" },
+              { name: "Sport", color: "#60a5fa" },
+              { name: "Sciences", color: "#818cf8" },
+            ].map((space) => {
+              const selected = activeSpaceDomain === space.name;
+              return (
+                <button
+                  key={space.name}
+                  type="button"
+                  onClick={() => {
+                    setActivePage("p1");
+                    setFeedViewMode("grid");
+                    setActiveSpaceDomain((prev) =>
+                      prev === space.name ? "Tous" : space.name
+                    );
+                  }}
+                  className={`flex items-center gap-2.5 px-3 py-1.5 rounded-xl text-xs font-medium cursor-pointer transition-all text-left ${
+                    selected
+                      ? "bg-white/10 text-white font-bold"
+                      : "hover:bg-white/5"
+                  }`}
+                  style={{
+                    color: selected ? "#ffffff" : "var(--text-muted)",
+                  }}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{
+                      backgroundColor: space.color,
+                      boxShadow: `0 0 8px ${space.color}`,
+                    }}
+                  />
+                  <span className="truncate">{space.name}</span>
+                </button>
+              );
+            })}
+          </div>
 
+          {/* Quick Action Buttons in Sidebar (Desktop) */}
+          <div
+            className="hidden lg:flex flex-col gap-1.5 pt-3.5"
+            style={{ borderTop: "1px solid var(--border)" }}
+          >
             <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
                 onClick={() => setComposerOpen(true)}
-                className="py-2.5 px-2.5 rounded-xl text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer btn-couture whitespace-nowrap shrink-0"
-                style={{
-                  background: "linear-gradient(135deg, var(--accent), #5e35ff)",
-                }}
+                className="py-2 px-2.5 rounded-xl text-xs font-extrabold inline-flex items-center justify-center gap-1.5 cursor-pointer btn-orbit-lime whitespace-nowrap shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Publier</span>
               </button>
 
-              {/* Fonctionnalité 15 : Bouton 'Coller rapide' */}
               <button
                 type="button"
                 onClick={handleQuickPasteButton}
-                className="py-2.5 px-2.5 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
+                className="py-2 px-2.5 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
                 style={{ color: "var(--accent-2)" }}
                 title="Passerelle d'Import Rapide Telegram / Discord / Presse-Papiers"
               >
                 <ClipboardPaste className="w-3.5 h-3.5" />
-                <span>Coller rapide</span>
+                <span>Coller</span>
               </button>
             </div>
 
-            {/* Fonctionnalité 17 : Interrupteur global 'Masquer les vidéos déjà vues' dans la barre latérale */}
-            <button
-              type="button"
-              onClick={handleToggleHideWatched}
-              className="w-full py-2 px-3 rounded-xl text-xs font-bold inline-flex items-center justify-between gap-2 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
-              style={{
-                borderColor: hideWatched
-                  ? "rgba(16, 185, 129, 0.6)"
-                  : undefined,
-                color: hideWatched ? "var(--success)" : "var(--text-main)",
-              }}
-              title="Filtre Intelligent Anti-Déjà-Vu (watchedVideoIds)"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                {hideWatched ? (
-                  <EyeOff className="w-3.5 h-3.5" />
-                ) : (
-                  <Eye className="w-3.5 h-3.5" />
-                )}
-                <span>
-                  {hideWatched ? "✓ Inédites seules" : "Anti-Déjà-Vu"}
-                </span>
-              </span>
-              <span className="font-mono-num text-[10px] opacity-85">
-                {watchedIds.length} vues
-              </span>
-            </button>
-
-            {/* Fonctionnalité 14 : Panier Intelligent 'À regarder ce soir' */}
-            <button
-              type="button"
-              onClick={() => setWatchLaterDrawerOpen(true)}
-              className="w-full py-2 px-3 rounded-xl text-xs font-bold inline-flex items-center justify-between gap-2 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
-              style={{ color: "var(--warning)" }}
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" />
-                <span>⏳ À regarder ce soir</span>
-              </span>
-              <span className="font-mono-num text-[11px] opacity-90">
-                {watchLaterVideos.length} ({watchLaterTotalMinutes}m)
-              </span>
-            </button>
-
-            {/* Idée 2 : Jukebox Collaboratif Live */}
-            <button
-              type="button"
-              onClick={() => setOpenModal("jukebox")}
-              className="w-full py-2 px-3 rounded-xl text-xs font-bold inline-flex items-center justify-between gap-2 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
-              style={{ color: "var(--success)" }}
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <Radio className="w-3.5 h-3.5" />
-                <span>Jukebox Amis Live</span>
-              </span>
-              <span className="font-mono-num text-[11px] opacity-80">
-                {orbitState.jukebox.length} titres
-              </span>
-            </button>
-
-            {/* Raccourci vers la Page 5 : Réglage et Importation (La Passerelle) */}
-            <button
-              type="button"
-              onClick={() => {
-                setActivePage("p5");
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              className="w-full py-2 px-3 rounded-xl text-[11px] font-black text-white inline-flex items-center justify-between gap-1.5 cursor-pointer btn-couture whitespace-nowrap shrink-0"
-              style={{
-                background: "linear-gradient(135deg, #e53935, #ff5252)",
-              }}
-              title="Ouvrir la Page 5 : Réglage et Importation (YouTube, TikTok, Instagram, Contacts)"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <Upload className="w-3.5 h-3.5" />
-                <span>📥 Réglage & Importation</span>
-              </span>
-              <span className="font-mono-num text-[10px] opacity-90">
-                Page 5
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleGenerateCustomAiDna}
-              className="w-full py-2 px-3 rounded-xl text-[11px] font-black text-black inline-flex items-center justify-between gap-1.5 cursor-pointer whitespace-nowrap shrink-0 transition-transform hover:scale-[1.01]"
-              style={{
-                background: "linear-gradient(135deg, #00e676, #00e5ff)",
-              }}
-              title="Mode Découverte Automatique par IA : Générer mon ADN sur-mesure (Tech, Photo, Rap, Astronomie)"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Générer mon ADN sur-mesure</span>
-              </span>
-              <span className="font-mono-num text-[10px] font-extrabold">
-                IA
-              </span>
-            </button>
-
-            <div className="grid grid-cols-2 gap-2 pt-0.5">
+            <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
-                onClick={() => {
-                  setActivePage("p5");
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className="py-2 px-2.5 rounded-xl text-[11px] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
+                onClick={() => setOpenModal("vault")}
+                className="py-1.5 px-2.5 rounded-xl text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0 text-emerald-300"
+                title="Mon coffre ORBIT"
               >
-                <Link2 className="w-3.5 h-3.5" style={{ color: "var(--accent-2)" }} />
-                <span>Passerelle ({activeSocialsCount}/6)</span>
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Coffre ORBIT</span>
               </button>
               <button
                 type="button"
                 onClick={() => setOpenModal("design")}
-                className="py-2 px-2.5 rounded-xl text-[11px] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
+                className="py-1.5 px-2.5 rounded-xl text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
               >
                 <Palette className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
                 <span>Studio</span>
               </button>
             </div>
-
-            {/* Mon coffre ORBIT — Souveraineté Numérique & Contrôle Local-First */}
-            <button
-              type="button"
-              onClick={() => setOpenModal("vault")}
-              className="w-full py-2.5 px-3 rounded-xl text-xs font-black text-white inline-flex items-center justify-between gap-1.5 cursor-pointer btn-couture whitespace-nowrap shrink-0"
-              style={{
-                background: "linear-gradient(135deg, #059669, #0284c7)",
-              }}
-              title="Ouvrir Mon coffre ORBIT : Mes données, export 1-clic, import, synchronisation sélective & profils d'interface"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>🛡️ Mon coffre ORBIT</span>
-              </span>
-              <span className="font-mono-num text-[10px] opacity-95">
-                Local-First
-              </span>
-            </button>
-
-            {/* Prompt 3 : 24/7 Offline & Cloud Sync Button */}
-            <button
-              type="button"
-              onClick={() => setOpenModal("resilience")}
-              className="w-full py-2 px-3 rounded-xl text-[11px] font-bold inline-flex items-center justify-between gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
-              style={{ color: "var(--accent-2)" }}
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <Database className="w-3.5 h-3.5" />
-                <span>Résilience 24/7 & Cloud</span>
-              </span>
-              <span className="font-mono-num text-[10px] opacity-80">
-                {swStats.totalCached} cache
-              </span>
-            </button>
           </div>
         </div>
 
-        {/* Sidebar Footer (Desktop) — Sauvegarde Persistante Totale LocalStorage + Export/Import JSON */}
+        {/* Sidebar Footer (Desktop) — User Profile Card + Sauvegarde JSON */}
         <div
-          className="hidden lg:block pt-4 text-xs space-y-2"
+          className="hidden lg:block pt-3 mt-3 text-xs space-y-2.5"
           style={{
             borderTop: "1px solid var(--border)",
             color: "var(--text-muted)",
           }}
         >
-          <div className="flex items-center justify-between">
-            <span className="font-bold" style={{ color: "var(--text-main)" }}>
-              LocalStorage ({orbitState.videos.length} vidéos)
-            </span>
-            <span
-              className="font-mono-num text-[10px] font-bold"
-              style={{ color: "var(--success)" }}
+          {/* User Profile Card matching reference bottom-left */}
+          <div className="flex items-center justify-between gap-2 px-1">
+            <button
+              type="button"
+              onClick={() => setActivePage("p2")}
+              className="flex items-center gap-2.5 min-w-0 text-left cursor-pointer group"
             >
-              Persistant ✓
-            </span>
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center font-black text-xs text-black shrink-0"
+                style={{
+                  background: "linear-gradient(135deg, #b4f82a, #38bdf8)",
+                }}
+              >
+                {orbitState.profile.initials}
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-extrabold text-white truncate group-hover:text-[#b4f82a] transition-colors">
+                  {orbitState.profile.name}
+                </div>
+                <div className="text-[10px] truncate opacity-75">
+                  Membre actif · {orbitState.videos.length} vidéos
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePage("p5")}
+              className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer transition-colors"
+              title="Paramètres & Importation"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
+
           <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
               onClick={handleExportJson}
-              className="px-2.5 py-2 rounded-xl font-bold text-[11px] inline-flex items-center justify-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0 text-emerald-300"
+              className="px-2 py-1.5 rounded-xl font-bold text-[10px] inline-flex items-center justify-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0 text-emerald-300"
               title="Sauvegarder et exporter toutes vos données LocalStorage en JSON"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Sauvegarder JSON</span>
+              <Download className="w-3 h-3" />
+              <span>Export JSON</span>
             </button>
             <input
               ref={jsonImportFileRef}
@@ -3700,11 +4765,11 @@ export default function App() {
             <button
               type="button"
               onClick={() => jsonImportFileRef.current?.click()}
-              className="px-2.5 py-2 rounded-xl font-bold text-[11px] inline-flex items-center justify-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0 text-cyan-300"
+              className="px-2 py-1.5 rounded-xl font-bold text-[10px] inline-flex items-center justify-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0 text-cyan-300"
               title="Restaurer une sauvegarde JSON dans LocalStorage"
             >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Restaurer JSON</span>
+              <Upload className="w-3 h-3" />
+              <span>Import JSON</span>
             </button>
           </div>
         </div>
@@ -3714,7 +4779,13 @@ export default function App() {
           MAIN VIEWPORT (100% FULL-BLEED VERTICAL IMMERSION ON P1, P2, P3, P4 OR GRID)
           ========================================================== */}
       {isVerticalImmersionActive ? (
-        <main className="relative w-full orbit-immersive-viewport overflow-hidden bg-black">
+        <main
+          className="relative w-full orbit-immersive-viewport overflow-hidden bg-black"
+          onTouchStart={handleViewportTouchStart}
+          onTouchMove={handleViewportTouchMove}
+          onTouchEnd={handleViewportTouchEnd}
+          onWheel={handleViewportWheel}
+        >
           {/* ON-DEMAND NAVIGATION & FILTER BAR (ONLY VISIBLE WHEN USER OPENS NAVIGATION IN MODE INTERACTION) */}
           <div
             className={`absolute top-12 inset-x-3 sm:inset-x-6 z-30 flex items-center justify-between gap-2 flex-wrap transition-all duration-200 ${
@@ -3729,8 +4800,11 @@ export default function App() {
                 {[
                   { id: "all" as FeedFilter, label: "Pour Vous" },
                   { id: "friends" as FeedFilter, label: "Amis" },
-                  { id: "vertical" as FeedFilter, label: "9:16 Reels" },
                   { id: "youtube" as FeedFilter, label: "YouTube" },
+                  { id: "tiktok" as FeedFilter, label: "TikTok" },
+                  { id: "instagram" as FeedFilter, label: "Instagram" },
+                  { id: "facebook" as FeedFilter, label: "Facebook" },
+                  { id: "vertical" as FeedFilter, label: "9:16 Reels" },
                   { id: "top95" as FeedFilter, label: "Top ≥ 9.5" },
                 ].map((tab) => {
                   const active = feedFilter === tab.id;
@@ -3998,123 +5072,183 @@ export default function App() {
             navOverlayOpen={immersiveNavOpen}
             onToggleNavOverlay={() => setImmersiveNavOpen((o) => !o)}
             onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
+            onSwipePage={(offset) => navigatePageByOffset(offset)}
           />
         </main>
       ) : (
-        <main className="px-4 pt-4 pb-28 lg:px-8 lg:py-6 max-w-[1180px] w-full mx-auto">
-          {/* TOPBAR FOR NON-IMMERSION VIEWS */}
+        <main
+          className="px-3 pt-2 pb-24 lg:px-6 lg:py-2.5 max-w-[1180px] w-full mx-auto transition-transform duration-200"
+          onTouchStart={handleViewportTouchStart}
+          onTouchMove={handleViewportTouchMove}
+          onTouchEnd={handleViewportTouchEnd}
+          onWheel={handleViewportWheel}
+          style={{
+            transform:
+              swipeDeltaX !== 0
+                ? `translateX(${Math.round(swipeDeltaX * 0.22)}px)`
+                : pageTransitionDir === "right"
+                ? "translateX(-6px)"
+                : pageTransitionDir === "left"
+                ? "translateX(6px)"
+                : undefined,
+          }}
+        >
+          {/* TOPBAR ORBIT — Recherche + Actions rapides + Cloche + Avatar */}
           <header
-            className="flex items-center justify-between gap-4 pb-5 mb-6 flex-wrap"
+            className="flex items-center justify-between gap-2 pb-2.5 mb-3 flex-wrap"
             style={{ borderBottom: "1px solid var(--border)" }}
           >
-            {/* Global Search */}
-            <div className="relative flex-1 min-w-[220px] max-w-md">
-              <Search
-                className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 opacity-70"
-                style={{ color: "var(--text-muted)" }}
-              />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Rechercher une vidéo, un domaine, un ami, un mot-clé..."
-                className="w-full pl-10 pr-4 py-2.5 rounded-full text-xs outline-none glass-panel"
-                style={{
-                  color: "var(--text-main)",
-                }}
-              />
+            {/* Mobile Brand + Global Search */}
+            <div className="flex items-center gap-2.5 flex-1 min-w-[180px] max-w-md">
+              <div className="flex lg:hidden items-center gap-1.5 shrink-0">
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center bg-[#0b1325] border border-lime-400/40">
+                  <span className="text-xs font-black text-[#b4f82a]">O</span>
+                </div>
+                <span className="text-sm font-black tracking-wider font-display text-white">
+                  ORBIT
+                </span>
+              </div>
+
+              <div className="relative flex-1">
+                <Search
+                  className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 opacity-70"
+                  style={{ color: "var(--text-muted)" }}
+                />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Rechercher une vidéo, un débat, un domaine..."
+                  className="w-full pl-8 pr-3 py-1.5 rounded-full text-xs outline-none glass-panel"
+                  style={{
+                    color: "var(--text-main)",
+                  }}
+                />
+              </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* BOUTON DE BASCULE RAPIDE PERSISTANT EN HAUT DES 4 PAGES */}
+            {/* Right Controls: Reels, Publier, Coller, Outils, Cloche, Profil */}
+            <div className="flex items-center gap-1.5 flex-wrap">
               {activePage !== "p5" && (
                 <button
                   type="button"
                   onClick={() => setFeedViewMode("immersion")}
-                  className="px-4 py-2 rounded-xl text-xs font-extrabold text-white inline-flex items-center gap-2 cursor-pointer btn-couture whitespace-nowrap shrink-0"
+                  className="px-2.5 py-1.5 rounded-full text-[11px] font-extrabold text-white inline-flex items-center gap-1 cursor-pointer btn-couture whitespace-nowrap shrink-0"
                   style={{
                     background: "linear-gradient(135deg, #0284c7, #5e35ff)",
                   }}
                   title="Basculer en 1 clic vers le Mode Scroll Vertical Immersion (façon TikTok / Reels)"
                 >
-                  <Smartphone className="w-3.5 h-3.5" />
-                  <span>📱 Mode Immersion Reels</span>
+                  <Smartphone className="w-3 h-3" />
+                  <span>📱 Reels</span>
                 </button>
               )}
-
-              {/* Fonctionnalité 12 : Bouton d'activation rapide 'Focus Absolu' */}
-              <button
-                type="button"
-                onClick={handleToggleFocusAbsolu}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
-                title="Activer le Mode Focus Absolu (Zéro Distraction)"
-              >
-                <Eye className="w-3.5 h-3.5" style={{ color: "var(--accent-2)" }} />
-                <span>Focus Absolu</span>
-              </button>
-
-              {/* Fonctionnalité 14 : Tiroir 'À regarder ce soir' */}
-              <button
-                type="button"
-                onClick={() => setWatchLaterDrawerOpen(true)}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
-                style={{ color: "var(--warning)" }}
-                title="Ouvrir le panier intelligent « À regarder ce soir »"
-              >
-                <Clock className="w-3.5 h-3.5" />
-                <span>⏳ Ce soir ({watchLaterVideos.length})</span>
-              </button>
-
-              {/* Fonctionnalité 15 : Bouton 'Coller rapide' */}
-              <button
-                type="button"
-                onClick={handleQuickPasteButton}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
-                style={{ color: "var(--accent-2)" }}
-                title="Passerelle d'Import Rapide Telegram / Discord / Presse-Papiers"
-              >
-                <ClipboardPaste className="w-3.5 h-3.5" />
-                <span>Coller rapide</span>
-              </button>
 
               <button
                 type="button"
                 onClick={() => setComposerOpen(true)}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white inline-flex items-center gap-2 cursor-pointer btn-couture whitespace-nowrap shrink-0"
-                style={{
-                  background: "linear-gradient(135deg, var(--accent), #5e35ff)",
-                }}
+                className="px-3 py-1.5 rounded-full text-[11px] font-extrabold inline-flex items-center gap-1 cursor-pointer btn-orbit-lime whitespace-nowrap shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Publier (IA)</span>
+                <span>Publier / .MP4</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setOpenModal("vault")}
-                className="px-3.5 py-2 rounded-xl text-xs font-extrabold text-white inline-flex items-center gap-1.5 cursor-pointer btn-couture whitespace-nowrap shrink-0"
+                onClick={handleQuickPasteButton}
+                className="px-2.5 py-1.5 rounded-full text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
+                style={{ color: "var(--accent-2)" }}
+                title="Passerelle d'Import Rapide Telegram / Discord / Presse-Papiers"
+              >
+                <ClipboardPaste className="w-3 h-3" />
+                <span className="hidden sm:inline">Coller</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setHeaderToolsOpen((o) => !o)}
+                className="px-2.5 py-1.5 rounded-full text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
                 style={{
-                  background: "linear-gradient(135deg, #059669, #0284c7)",
+                  borderColor: headerToolsOpen
+                    ? "rgba(180, 248, 42, 0.55)"
+                    : undefined,
+                  color: headerToolsOpen ? "#b4f82a" : "var(--text-muted)",
                 }}
-                title="Ouvrir Mon coffre ORBIT (Mes données, Export/Import, Sync sélective & Confidentialité)"
+                title="Afficher / masquer les outils complémentaires (Focus, Ce soir, Coffre, Jukebox)"
               >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Mon coffre ORBIT</span>
+                <Layers className="w-3 h-3" />
+                <span>Outils {headerToolsOpen ? "▴" : "▾"}</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setOpenModal("jukebox")}
-                className="px-3 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap shrink-0"
-                style={{ color: "var(--success)" }}
+                onClick={() => setWatchLaterDrawerOpen(true)}
+                className="w-8 h-8 rounded-full glass-panel glass-panel-interactive flex items-center justify-center cursor-pointer relative shrink-0"
+                title={`À regarder ce soir (${watchLaterVideos.length} vidéos)`}
               >
-                <Radio className="w-3.5 h-3.5" />
-                <span>Jukebox ({orbitState.jukebox.length})</span>
+                <Bell className="w-3.5 h-3.5 text-slate-200" />
+                {watchLaterVideos.length > 0 && (
+                  <span className="w-2 h-2 rounded-full bg-[#b4f82a] absolute top-1.5 right-1.5" />
+                )}
               </button>
 
-              <PWAInstallButton />
+              <button
+                type="button"
+                onClick={() => setActivePage("p2")}
+                className="w-8 h-8 rounded-full flex items-center justify-center font-black text-[11px] text-black cursor-pointer shrink-0 border border-lime-300/50 shadow-[0_0_12px_rgba(180,248,42,0.3)]"
+                style={{
+                  background: "linear-gradient(135deg, #b4f82a, #38bdf8)",
+                }}
+                title={`Profil : ${orbitState.profile.name}`}
+              >
+                {orbitState.profile.initials}
+              </button>
             </div>
+
+            {headerToolsOpen && (
+              <div className="w-full pt-1.5 grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleToggleFocusAbsolu}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap"
+                >
+                  <Eye className="w-3 h-3" style={{ color: "var(--accent-2)" }} />
+                  <span>Focus Absolu</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWatchLaterDrawerOpen(true)}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap"
+                  style={{ color: "var(--warning)" }}
+                >
+                  <Clock className="w-3 h-3" />
+                  <span>⏳ Ce soir ({watchLaterVideos.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpenModal("vault")}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold text-white inline-flex items-center justify-center gap-1 cursor-pointer btn-couture whitespace-nowrap"
+                  style={{
+                    background: "linear-gradient(135deg, #059669, #0284c7)",
+                  }}
+                >
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>Mon coffre ORBIT</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpenModal("jukebox")}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer glass-panel glass-panel-interactive whitespace-nowrap"
+                  style={{ color: "var(--success)" }}
+                >
+                  <Radio className="w-3 h-3" />
+                  <span>Jukebox ({orbitState.jukebox.length})</span>
+                </button>
+                <div className="flex items-center justify-center">
+                  <PWAInstallButton />
+                </div>
+              </div>
+            )}
           </header>
 
           <OfflineIndicator />
@@ -4122,36 +5256,25 @@ export default function App() {
           {/* Fonctionnalité 20 : Bannière de Sélection QR Code Scannée */}
           {scannedPlaylistBanner && (
             <div
-              className="mb-5 p-4 rounded-2xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              className="mb-2 p-2.5 rounded-xl glass-panel flex items-center justify-between gap-2"
               style={{
                 borderColor: "rgba(124, 92, 255, 0.55)",
                 background: "rgba(124, 92, 255, 0.12)",
               }}
             >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-400/40 flex items-center justify-center shrink-0">
-                  <QrCode className="w-5 h-5 text-cyan-300" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-extrabold text-cyan-300">
-                    📱 Sélection QR Code Active : « {scannedPlaylistBanner.title} »
-                  </div>
-                  <div
-                    className="text-[11px] truncate"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    Partagée par @{scannedPlaylistBanner.curator} ·{" "}
-                    {scannedPlaylistBanner.videoIds.length} pépites dans cette
-                    sélection
-                  </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <QrCode className="w-4 h-4 text-cyan-300 shrink-0" />
+                <div className="text-[11px] font-extrabold text-cyan-300 truncate">
+                  📱 Sélection QR : « {scannedPlaylistBanner.title} » (
+                  {scannedPlaylistBanner.videoIds.length} vidéos)
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setScannedPlaylistBanner(null)}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-white/10 hover:bg-white/20 cursor-pointer shrink-0"
+                className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white bg-white/10 hover:bg-white/20 cursor-pointer shrink-0"
               >
-                Afficher tout le catalogue Orbit
+                Tout afficher
               </button>
             </div>
           )}
@@ -4159,34 +5282,22 @@ export default function App() {
           {/* Fonctionnalité 15 : Détecteur Intelligent de Lien dans le Presse-Papiers */}
           {clipboardDetectedBanner && (
             <div
-              className="mb-5 p-4 rounded-2xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              className="mb-2 p-2.5 rounded-xl glass-panel flex items-center justify-between gap-2"
               style={{
                 borderColor: "rgba(0, 229, 255, 0.45)",
                 background: "rgba(0, 229, 255, 0.07)",
               }}
             >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center shrink-0">
-                  <ClipboardPaste className="w-4 h-4 text-cyan-300" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-extrabold text-cyan-300">
-                    Lien détecté dans votre presse-papiers (
-                    {clipboardDetectedBanner.source.toUpperCase()})
-                  </div>
-                  <div
-                    className="text-[11px] truncate"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {clipboardDetectedBanner.url} · Pré-classé dans{" "}
-                    <strong style={{ color: "var(--text-main)" }}>
-                      {clipboardDetectedBanner.domain} ›{" "}
-                      {clipboardDetectedBanner.subdomain}
-                    </strong>
-                  </div>
-                </div>
+              <div className="flex items-center gap-2 min-w-0 text-[11px] truncate">
+                <ClipboardPaste className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                <span className="font-bold text-cyan-300">
+                  Lien détecté ({clipboardDetectedBanner.source.toUpperCase()}) :
+                </span>
+                <span className="truncate opacity-80">
+                  {clipboardDetectedBanner.url}
+                </span>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
@@ -4196,15 +5307,15 @@ export default function App() {
                     );
                     setClipboardDetectedBanner(null);
                   }}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer btn-couture"
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white cursor-pointer btn-couture"
                   style={{ background: "var(--accent)" }}
                 >
-                  Importer & Pré-remplir
+                  Importer
                 </button>
                 <button
                   type="button"
                   onClick={() => setClipboardDetectedBanner(null)}
-                  className="px-2.5 py-1.5 rounded-xl text-xs cursor-pointer opacity-70 hover:opacity-100"
+                  className="px-1.5 py-1 rounded-lg text-[10px] cursor-pointer opacity-70 hover:opacity-100"
                 >
                   ✕
                 </button>
@@ -4212,20 +5323,48 @@ export default function App() {
             </div>
           )}
 
+          {/* BANNIÈRE DE PUBLICATION DIRECTE DEPUIS UN LIEN VERS LE SITE */}
+          {directPublishedBanner && (
+            <div
+              className="mb-2 px-3 py-1.5 rounded-xl text-[11px] font-bold flex items-center justify-between gap-2 glass-panel"
+              style={{
+                background: "rgba(0, 229, 255, 0.08)",
+                borderColor: "rgba(0, 229, 255, 0.45)",
+                color: "var(--accent-2)",
+              }}
+            >
+              <span className="truncate">
+                🔗 Publication créée directement sur le site depuis votre lien :{" "}
+                <strong className="text-white">
+                  {directPublishedBanner.title}
+                </strong>{" "}
+                ({directPublishedBanner.domain} ›{" "}
+                {directPublishedBanner.subdomain})
+              </span>
+              <button
+                type="button"
+                onClick={() => setDirectPublishedBanner(null)}
+                className="cursor-pointer ml-2 opacity-75 hover:opacity-100 shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* TOAST NOTIFICATION */}
           {toastMessage && (
             <div
-              className="mb-5 px-4 py-3 rounded-xl text-xs font-bold flex items-center justify-between glass-panel"
+              className="mb-2 px-3 py-1.5 rounded-xl text-[11px] font-bold flex items-center justify-between glass-panel"
               style={{
-                borderColor: "rgba(0, 230, 118, 0.4)",
-                color: "var(--success)",
+                borderColor: "rgba(180, 248, 42, 0.45)",
+                color: "#b4f82a",
               }}
             >
-              <span>{toastMessage}</span>
+              <span className="truncate">{toastMessage}</span>
               <button
                 type="button"
                 onClick={() => setToastMessage(null)}
-                className="cursor-pointer ml-4 opacity-75 hover:opacity-100"
+                className="cursor-pointer ml-3 opacity-75 hover:opacity-100"
               >
                 ✕
               </button>
@@ -4233,211 +5372,907 @@ export default function App() {
           )}
 
           {/* ==========================================================
-              PAGE 1 (GRID FALLBACK MODE) : LE FLUX EN GRILLE + DÉFIS HEBDO
-              + FONCTIONNALITÉ 17 (INTERRUPTEUR ANTI-DÉJÀ-VU)
+              PAGE 1 : ACCUEIL ORBIT — "TON UNIVERS EN ORBITE"
               ========================================================== */}
           {activePage === "p1" && (
-            <section className="space-y-6">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div>
-                  <h1 className="text-2xl md:text-3xl font-black tracking-tight">
-                    Le Flux de vos Abonnements (Vue Galerie)
-                  </h1>
-                  <p
-                    className="text-sm mt-1"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    Partagez, réagissez en direct, débattez en 3 colonnes et notez le meilleur de vos réseaux.
-                  </p>
-                </div>
-
-                {/* Bascule rapide Mode Immersion Reels / Mode Grille + Interrupteur Anti-Déjà-Vu (Page 1) */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFeedViewMode(
-                        feedViewMode === "immersion" ? "grid" : "immersion"
-                      )
-                    }
-                    className="px-4 py-2.5 rounded-2xl text-xs font-black text-white inline-flex items-center gap-2 cursor-pointer transition-all btn-couture"
+            <section className="space-y-4">
+              {/* HERO BANNER ORBIT ("Ton univers en orbite") + 6 BENTO FEATURE CARDS */}
+              {heroExpanded ? (
+                <div className="space-y-3">
+                  <div
+                    className="relative overflow-hidden rounded-2xl p-4 sm:p-5 border"
                     style={{
                       background:
-                        "linear-gradient(135deg, #00e5ff, var(--accent))",
-                      boxShadow: "0 6px 20px rgba(0, 229, 255, 0.28)",
+                        "radial-gradient(circle at 72% 45%, rgba(56, 189, 248, 0.22), rgba(163, 230, 53, 0.08) 38%, rgba(8, 13, 24, 0.96) 78%)",
+                      borderColor: "rgba(148, 163, 184, 0.18)",
+                      boxShadow: "0 20px 44px -15px rgba(0, 0, 0, 0.8)",
                     }}
                   >
-                    <Smartphone className="w-4 h-4" />
-                    <span>📱 Mode Immersion Reels</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleToggleHideWatched}
-                    className="px-4 py-2.5 rounded-2xl text-xs font-bold inline-flex items-center gap-2 cursor-pointer transition-all"
-                    style={{
-                      background: hideWatched
-                        ? "rgba(0, 230, 118, 0.16)"
-                        : "var(--bg-card)",
-                      border: `1px solid ${
-                        hideWatched ? "#00e676" : "var(--border)"
-                      }`,
-                      color: hideWatched ? "var(--success)" : "var(--text-main)",
-                    }}
-                  >
-                    {hideWatched ? (
-                      <EyeOff className="w-4 h-4 text-emerald-400" />
-                    ) : (
-                      <Eye className="w-4 h-4 text-cyan-400" />
-                    )}
-                    <span>
-                      {hideWatched
-                        ? `✓ Masquer les vidéos déjà vues (${watchedIds.length} masquées)`
-                        : `Masquer les vidéos déjà vues (${watchedIds.length} vues)`}
-                    </span>
-                  </button>
-                  {watchedIds.length > 0 && (
+                    {/* Bouton discret pour replier le Hero si l'utilisateur souhaite uniquement la grille vidéo */}
                     <button
                       type="button"
-                      onClick={() => {
-                        setOrbitState((prev) => ({
-                          ...prev,
-                          watchedVideoIds: [],
-                        }));
-                        OrbitStorageService.saveWatchedVideoIds([]);
-                        showToast(
-                          "Historique watchedVideoIds remis à zéro dans LocalStorage."
-                        );
-                      }}
-                      className="px-3 py-2.5 rounded-2xl text-xs font-semibold cursor-pointer glass-panel opacity-85 hover:opacity-100"
-                      title="Réinitialiser le tableau watchedVideoIds"
+                      onClick={() => setHeroExpanded(false)}
+                      className="absolute top-2.5 right-2.5 z-20 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10 cursor-pointer"
+                      title="Réduire la bannière d'accueil"
                     >
-                      Réinitialiser vues
+                      Réduire ▴
                     </button>
-                  )}
-                </div>
-              </div>
 
-              {/* Idée 7 : Défis de Curation Hebdomadaires */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {orbitState.challenges.map((ch) => {
-                  const pct = Math.round(
-                    (ch.userProgress / ch.targetCount) * 100
-                  );
-                  return (
-                    <div
-                      key={ch.id}
-                      className="p-4 rounded-2xl glass-panel flex flex-col justify-between gap-3"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div
-                            className="text-[11px] font-bold"
-                            style={{ color: "var(--accent-2)" }}
+                    <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_1fr] gap-4 items-center">
+                      {/* Colonne Gauche : Titre "Ton univers en orbite" + CTA Lime */}
+                      <div className="space-y-2.5 z-10">
+                        <h1 className="text-2xl sm:text-4xl font-black tracking-tight font-display leading-[1.08] text-white">
+                          Ton univers{" "}
+                          <span
+                            className="block sm:inline"
+                            style={{ color: "#b4f82a" }}
                           >
-                            {ch.weekLabel} · {ch.targetDomain} ·{" "}
-                            <span className="font-mono-num">
-                              {ch.participantsCount} curateurs
-                            </span>
-                          </div>
-                          <h3 className="text-sm font-extrabold font-display mt-0.5">
-                            {ch.title}
-                          </h3>
-                          <p
-                            className="text-xs mt-1"
-                            style={{ color: "var(--text-muted)" }}
+                            en orbite
+                          </span>
+                        </h1>
+                        <p
+                          className="text-xs sm:text-sm max-w-md leading-relaxed"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          Des vidéos, des débats, des découvertes et une
+                          communauté de passionnés. Tout ce qui t&apos;inspire,
+                          au même endroit.
+                        </p>
+                        <div className="flex items-center gap-2.5 flex-wrap pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const el = document.getElementById(
+                                "orbit-a-ne-pas-manquer"
+                              );
+                              if (el) {
+                                el.scrollIntoView({ behavior: "smooth" });
+                              } else {
+                                setActivePage("p4");
+                              }
+                            }}
+                            className="px-4 py-2 rounded-full text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer btn-orbit-lime"
                           >
-                            {ch.description}
-                          </p>
+                            <span>Explorer maintenant</span>
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setComposerOpen(true)}
+                            className="px-3.5 py-2 rounded-full text-xs font-bold text-white bg-white/10 hover:bg-white/15 border border-white/15 inline-flex items-center gap-1.5 cursor-pointer transition-all"
+                          >
+                            <Plus className="w-3.5 h-3.5 text-[#b4f82a]" />
+                            <span>Partager une vidéo / .MP4</span>
+                          </button>
                         </div>
+                      </div>
+
+                      {/* Colonne Droite : Globe Orbital Cosmique & 3 Cartes Flottantes Interactives (Découvrir, Apprendre, Partager) */}
+                      <div className="relative h-44 sm:h-48 flex items-center justify-center select-none">
+                        {/* Anneaux orbitaux lumineux SVG */}
+                        <svg
+                          viewBox="0 0 360 190"
+                          className="w-full h-full max-w-[360px] overflow-visible"
+                          fill="none"
+                        >
+                          <defs>
+                            <linearGradient
+                              id="heroOrbitLime"
+                              x1="0%"
+                              y1="0%"
+                              x2="100%"
+                              y2="100%"
+                            >
+                              <stop offset="0%" stopColor="#b4f82a" />
+                              <stop offset="50%" stopColor="#38bdf8" />
+                              <stop offset="100%" stopColor="#a3e635" />
+                            </linearGradient>
+                            <radialGradient
+                              id="heroPlanetGlow"
+                              cx="50%"
+                              cy="50%"
+                              r="50%"
+                            >
+                              <stop
+                                offset="0%"
+                                stopColor="rgba(56, 189, 248, 0.55)"
+                              />
+                              <stop
+                                offset="55%"
+                                stopColor="rgba(14, 116, 144, 0.32)"
+                              />
+                              <stop
+                                offset="100%"
+                                stopColor="rgba(6, 10, 19, 0)"
+                              />
+                            </radialGradient>
+                          </defs>
+                          {/* Halo planétaire */}
+                          <circle
+                            cx="180"
+                            cy="95"
+                            r="74"
+                            fill="url(#heroPlanetGlow)"
+                          />
+                          {/* Sphère terrestre stylisée */}
+                          <circle
+                            cx="180"
+                            cy="95"
+                            r="48"
+                            fill="#0b192e"
+                            stroke="rgba(56, 189, 248, 0.55)"
+                            strokeWidth="1.5"
+                          />
+                          {/* Anneau orbital principal (Lime -> Cyan) */}
+                          <ellipse
+                            cx="180"
+                            cy="95"
+                            rx="132"
+                            ry="44"
+                            transform="rotate(-18 180 95)"
+                            stroke="url(#heroOrbitLime)"
+                            strokeWidth="3"
+                            strokeDasharray="6 2"
+                          />
+                          {/* Second anneau orbital croisé */}
+                          <ellipse
+                            cx="180"
+                            cy="95"
+                            rx="116"
+                            ry="36"
+                            transform="rotate(22 180 95)"
+                            stroke="rgba(56, 189, 248, 0.45)"
+                            strokeWidth="1.5"
+                          />
+                          <circle cx="62" cy="128" r="4" fill="#b4f82a" />
+                          <circle cx="295" cy="56" r="3.5" fill="#38bdf8" />
+                          <circle cx="215" cy="36" r="2.5" fill="#b4f82a" />
+                        </svg>
+
+                        {/* Carte flottante 1 : Découvrir */}
                         <button
                           type="button"
-                          onClick={() => {
-                            setInpDomain(ch.targetDomain);
-                            setInpChallengeTag(ch.weekLabel);
-                            setComposerOpen(true);
-                          }}
-                          className="px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer btn-couture shrink-0"
-                          style={{ background: "var(--accent)" }}
+                          onClick={() => setActiveSpaceDomain("Découverte")}
+                          className="absolute top-1 left-2 sm:left-6 px-2.5 py-1.5 rounded-xl bg-[#0d182c]/90 border border-cyan-400/40 shadow-lg flex items-center gap-2 cursor-pointer hover:scale-105 transition-transform"
                         >
-                          Participer
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
+                          <span className="text-[11px] font-extrabold text-cyan-200">
+                            Découvrir
+                          </span>
+                        </button>
+
+                        {/* Carte flottante 2 : Apprendre */}
+                        <button
+                          type="button"
+                          onClick={() => setActiveSpaceDomain("Sciences")}
+                          className="absolute bottom-2 left-4 sm:left-10 px-2.5 py-1.5 rounded-xl bg-[#0d182c]/90 border border-lime-400/40 shadow-lg flex items-center gap-2 cursor-pointer hover:scale-105 transition-transform"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-[#b4f82a] shadow-[0_0_8px_#b4f82a]" />
+                          <span className="text-[11px] font-extrabold text-lime-200">
+                            Apprendre
+                          </span>
+                        </button>
+
+                        {/* Carte flottante 3 : Explorer Tech */}
+                        <button
+                          type="button"
+                          onClick={() => setActiveSpaceDomain("Technologie")}
+                          className="absolute top-3 right-2 sm:right-5 px-2.5 py-1.5 rounded-xl bg-[#0d182c]/90 border border-purple-400/40 shadow-lg flex items-center gap-2 cursor-pointer hover:scale-105 transition-transform"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-purple-400 shadow-[0_0_8px_#c084fc]" />
+                          <span className="text-[11px] font-extrabold text-purple-200">
+                            IA & Tech
+                          </span>
+                        </button>
+
+                        {/* Carte flottante 4 : Partager */}
+                        <button
+                          type="button"
+                          onClick={() => setComposerOpen(true)}
+                          className="absolute bottom-1 right-2 sm:right-6 px-2.5 py-1.5 rounded-xl bg-[#0d182c]/90 border border-emerald-400/40 shadow-lg flex items-center gap-2 cursor-pointer hover:scale-105 transition-transform"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#38bdf8]" />
+                          <span className="text-[11px] font-extrabold text-emerald-200">
+                            Partager
+                          </span>
                         </button>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* 6 CARTES BENTO DE NAVIGATION RAPIDE (Vidéos, Débats, Panthéon, Radar, Portfolio, Défis) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                    {[
+                      {
+                        title: "Vidéos",
+                        desc: "Les meilleures vidéos sélectionnées pour toi",
+                        icon: Play,
+                        iconBg: "rgba(139, 92, 246, 0.2)",
+                        iconColor: "#c084fc",
+                        onClick: () => setFeedViewMode("immersion"),
+                      },
+                      {
+                        title: "Débats",
+                        desc: "Échange, analyse, prends du recul",
+                        icon: MessageSquare,
+                        iconBg: "rgba(56, 189, 248, 0.2)",
+                        iconColor: "#38bdf8",
+                        onClick: () => setActiveSpaceDomain("Débats"),
+                      },
+                      {
+                        title: "Panthéon",
+                        desc: "Classements et blind-tests historiques",
+                        icon: Trophy,
+                        iconBg: "rgba(251, 191, 36, 0.2)",
+                        iconColor: "#fbbf24",
+                        onClick: () => setActivePage("p3"),
+                      },
+                      {
+                        title: "Radar",
+                        desc: "Tendances près de chez toi et dans le monde",
+                        icon: MapPin,
+                        iconBg: "rgba(52, 211, 153, 0.2)",
+                        iconColor: "#34d399",
+                        onClick: () => setActivePage("p4"),
+                      },
+                      {
+                        title: "Portfolio",
+                        desc: "Valorise ton univers et tes créations",
+                        icon: Star,
+                        iconBg: "rgba(168, 85, 247, 0.2)",
+                        iconColor: "#a855f7",
+                        onClick: () => setActivePage("p2"),
+                      },
+                      {
+                        title: "Défis",
+                        desc: "Relève des défis et gagne des badges",
+                        icon: Target,
+                        iconBg: "rgba(34, 211, 238, 0.2)",
+                        iconColor: "#22d3ee",
+                        onClick: () =>
+                          setActiveTopPanel((p) =>
+                            p === "challenges" ? null : "challenges"
+                          ),
+                      },
+                    ].map((card) => {
+                      const CardIcon = card.icon;
+                      return (
+                        <button
+                          key={card.title}
+                          type="button"
+                          onClick={card.onClick}
+                          className="p-3 rounded-2xl glass-panel glass-panel-interactive text-left flex flex-col justify-between gap-2 cursor-pointer"
+                        >
+                          <div
+                            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                            style={{
+                              backgroundColor: card.iconBg,
+                              color: card.iconColor,
+                            }}
+                          >
+                            <CardIcon className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-xs sm:text-sm font-extrabold font-display text-white">
+                              {card.title}
+                            </div>
+                            <p
+                              className="text-[10px] leading-snug mt-0.5 line-clamp-2"
+                              style={{ color: "var(--text-muted)" }}
+                            >
+                              {card.desc}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between px-3 py-1.5 rounded-xl glass-panel">
+                  <span className="text-xs font-extrabold text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#b4f82a]" />
+                    <span>Ton univers en orbite</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setHeroExpanded(true)}
+                    className="text-[11px] font-bold text-[#b4f82a] hover:underline cursor-pointer"
+                  >
+                    Afficher la bannière Orbit ▾
+                  </button>
+                </div>
+              )}
+
+              {/* TIROIRS RAPIDES GROUPÉS PAR DEUX (Défi de Curation, Mon Empreinte Culturelle, Téléchargeur FB/.MP4, Amis) */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveTopPanel((p) =>
+                      p === "challenges" ? null : "challenges"
+                    )
+                  }
+                  className="px-2.5 py-1.5 rounded-xl glass-panel flex items-center justify-between gap-1.5 text-left cursor-pointer transition-all hover:bg-white/5"
+                  style={{
+                    borderColor:
+                      activeTopPanel === "challenges"
+                        ? "rgba(251, 191, 36, 0.65)"
+                        : "var(--border)",
+                  }}
+                >
+                  <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-extrabold truncate">
+                    <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="truncate">
+                      Défi de Curation ({orbitState.challenges.length})
+                    </span>
+                  </span>
+                  <span
+                    className="text-[10px] font-mono-num shrink-0 px-1.5 py-0.5 rounded bg-white/5"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {activeTopPanel === "challenges" ? "▴" : "▾"}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveTopPanel((p) => (p === "dna" ? null : "dna"))
+                  }
+                  className="px-2.5 py-1.5 rounded-xl glass-panel flex items-center justify-between gap-1.5 text-left cursor-pointer transition-all hover:bg-white/5"
+                  style={{
+                    borderColor:
+                      activeTopPanel === "dna"
+                        ? "rgba(0, 229, 255, 0.65)"
+                        : "var(--border)",
+                  }}
+                >
+                  <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-extrabold truncate">
+                    <Sparkles className="w-3.5 h-3.5 text-[#b4f82a] shrink-0" />
+                    <span className="truncate">
+                      Algorithme & Mes Goûts (15)
+                    </span>
+                  </span>
+                  <span
+                    className="text-[10px] font-mono-num shrink-0 px-1.5 py-0.5 rounded bg-white/5"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {activeTopPanel === "dna" ? "▴" : "▾"}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveTopPanel((p) =>
+                      p === "downloader" ? null : "downloader"
+                    )
+                  }
+                  className="px-2.5 py-1.5 rounded-xl glass-panel flex items-center justify-between gap-1.5 text-left cursor-pointer transition-all hover:bg-white/5"
+                  style={{
+                    borderColor:
+                      activeTopPanel === "downloader"
+                        ? "rgba(56, 189, 248, 0.65)"
+                        : "var(--border)",
+                  }}
+                >
+                  <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-extrabold text-cyan-300 truncate">
+                    <Download className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                    <span className="truncate">
+                      Téléchargeur FB / .MP4 & Lien
+                    </span>
+                  </span>
+                  <span
+                    className="text-[10px] font-mono-num shrink-0 px-1.5 py-0.5 rounded bg-white/5"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {activeTopPanel === "downloader" ? "▴" : "▾"}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveTopPanel((p) =>
+                      p === "friends" ? null : "friends"
+                    )
+                  }
+                  className="px-2.5 py-1.5 rounded-xl glass-panel flex items-center justify-between gap-1.5 text-left cursor-pointer transition-all hover:bg-white/5"
+                  style={{
+                    borderColor:
+                      activeTopPanel === "friends"
+                        ? "rgba(16, 185, 129, 0.65)"
+                        : "var(--border)",
+                  }}
+                >
+                  <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-extrabold truncate">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="truncate">
+                      Amis ({orbitState.twins.length}) & Sources ({activeSocialsCount}/6)
+                    </span>
+                  </span>
+                  <span
+                    className="text-[10px] font-mono-num shrink-0 px-1.5 py-0.5 rounded bg-white/5"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {activeTopPanel === "friends" ? "▴" : "▾"}
+                  </span>
+                </button>
+              </div>
+
+              {/* CONTENU DÉPLIABLE DU PANNEAU SÉLECTIONNÉ */}
+              {activeTopPanel === "challenges" && (
+                <div className="p-3 rounded-2xl glass-panel space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-extrabold flex items-center gap-1.5">
+                      <Flame className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Défis de Curation Hebdomadaires</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTopPanel(null)}
+                      className="text-[11px] font-bold opacity-75 hover:opacity-100 cursor-pointer"
+                    >
+                      Fermer ✕
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {orbitState.challenges.map((ch) => {
+                      const pct = Math.round(
+                        (ch.userProgress / ch.targetCount) * 100
+                      );
+                      return (
+                        <div
+                          key={ch.id}
+                          className="p-3 rounded-xl glass-panel flex flex-col justify-between gap-2"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div
+                                className="text-[10px] font-bold"
+                                style={{ color: "var(--accent-2)" }}
+                              >
+                                {ch.weekLabel} · {ch.targetDomain} ·{" "}
+                                <span className="font-mono-num">
+                                  {ch.participantsCount} curateurs
+                                </span>
+                              </div>
+                              <h3 className="text-xs font-extrabold font-display mt-0.5">
+                                {ch.title}
+                              </h3>
+                              <p
+                                className="text-[11px] mt-0.5"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                {ch.description}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInpDomain(ch.targetDomain);
+                                setInpChallengeTag(ch.weekLabel);
+                                setComposerOpen(true);
+                              }}
+                              className="px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer btn-orbit-lime shrink-0"
+                            >
+                              Participer
+                            </button>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[10px] font-mono-num">
+                              <span>Récompense : {ch.rewardBadge}</span>
+                              <span>
+                                {ch.userProgress}/{ch.targetCount} ({pct}%)
+                              </span>
+                            </div>
+                            <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                              <div
+                                className="h-full rounded-full"
+                                style={{
+                                  width: `${pct}%`,
+                                  background:
+                                    "linear-gradient(90deg, #b4f82a, var(--accent-2))",
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {activeTopPanel === "dna" && (
+                <div className="p-3.5 rounded-2xl glass-panel space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Sparkles className="w-4 h-4 text-[#b4f82a]" />
+                      <span className="text-xs sm:text-sm font-extrabold font-display text-white">
+                        Moteur Algorithmique Autonome & Empreinte de Goûts
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-lime-400/15 text-[#b4f82a] border border-lime-400/35">
+                        {algoAutoPilot
+                          ? "⚡ Auto-Pilote Actif"
+                          : "Mode Manuel"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !algoAutoPilot;
+                          setAlgoAutoPilot(next);
+                          try {
+                            window.localStorage.setItem(
+                              "ORBIT_ALGO_AUTOPILOT_V1",
+                              String(next)
+                            );
+                          } catch {
+                            // ignore
+                          }
+                          showToast(
+                            next
+                              ? "⚡ Auto-Pilote Algorithmique activé : recherche autonome selon vos goûts !"
+                              : "Auto-Pilote Algorithmique mis en pause."
+                          );
+                        }}
+                        className="px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer glass-panel glass-panel-interactive"
+                        style={{
+                          color: algoAutoPilot ? "#b4f82a" : "var(--text-muted)",
+                        }}
+                      >
+                        {algoAutoPilot
+                          ? "✓ Auto-Pilote ON"
+                          : "Activer Auto-Pilote"}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isAlgoHunting}
+                        onClick={() =>
+                          void runAlgorithmicDiscovery({
+                            silent: false,
+                            count: 4,
+                          })
+                        }
+                        className="px-3 py-1 rounded-lg text-[10px] font-black cursor-pointer inline-flex items-center gap-1.5 btn-orbit-lime disabled:opacity-50"
+                      >
+                        {isAlgoHunting ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Zap className="w-3 h-3" />
+                        )}
+                        <span>
+                          {isAlgoHunting
+                            ? "Chasse algorithmique en cours..."
+                            : "Chasser des vidéos selon mes goûts"}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveTopPanel(null)}
+                        className="text-[11px] font-bold opacity-75 hover:opacity-100 cursor-pointer ml-1"
+                      >
+                        Fermer ✕
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Barre de Mots-Clés / Sujets appris et personnalisables + Curseur Sérendipité */}
+                  <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-2.5 p-2.5 rounded-xl bg-white/[0.02] border border-white/10">
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center justify-between">
+                        <span>
+                          🎯 Vos sujets & artistes ciblés par l'algorithme
+                        </span>
+                        <span className="text-[#b4f82a] font-mono-num">
+                          Apprentissage temps réel
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {algoCustomKeywords.map((kw) => (
+                          <span
+                            key={kw}
+                            className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-lime-400/10 text-lime-200 border border-lime-400/30 inline-flex items-center gap-1"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void runAlgorithmicDiscovery({
+                                  silent: false,
+                                  forceKeyword: kw,
+                                  count: 3,
+                                })
+                              }
+                              className="cursor-pointer hover:underline"
+                              title={`Chercher immédiatement des vidéos sur « ${kw} »`}
+                            >
+                              ⚡ {kw}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAlgoKeyword(kw)}
+                              className="opacity-60 hover:opacity-100 cursor-pointer ml-0.5"
+                              title="Retirer ce mot-clé"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <form
+                        onSubmit={handleAddAlgoKeyword}
+                        className="flex items-center gap-1.5 pt-1"
+                      >
+                        <input
+                          type="text"
+                          value={algoKeywordInput}
+                          onChange={(e) => setAlgoKeywordInput(e.target.value)}
+                          placeholder="Ajouter un goût, sujet ou artiste (ex: Astrophysique, Benjamin Tranié, Synthé...)"
+                          className="flex-1 px-2.5 py-1 rounded-lg text-[11px] outline-none bg-black/40 border border-white/15 text-white"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isAlgoHunting}
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer btn-orbit-lime shrink-0"
+                        >
+                          + Ajouter & Chercher
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* Curseur Exploitation vs Sérendipité + Rapport de la dernière chasse */}
+                    <div className="space-y-2 flex flex-col justify-between">
                       <div className="space-y-1">
-                        <div className="flex justify-between text-[11px] font-mono-num">
-                          <span>Récompense : {ch.rewardBadge}</span>
-                          <span>
-                            {ch.userProgress}/{ch.targetCount} pépites ({pct}%)
+                        <div className="flex items-center justify-between text-[10px] font-bold">
+                          <span className="text-slate-300">
+                             Dosage :{" "}
+                            <strong className="text-[#b4f82a]">
+                              {100 - radarExploration}% Goûts Purs
+                            </strong>{" "}
+                            /{" "}
+                            <strong className="text-cyan-300">
+                              {radarExploration}% Sérendipité
+                            </strong>
                           </span>
                         </div>
-                        <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <input
+                          type="range"
+                          min={0}
+                          max={70}
+                          step={5}
+                          value={radarExploration}
+                          onChange={(e) =>
+                            setRadarExploration(Number(e.target.value))
+                          }
+                          className="w-full accent-[#b4f82a] cursor-pointer h-1.5"
+                        />
+                      </div>
+
+                      {algoLastHuntReport && (
+                        <div className="p-2 rounded-lg bg-black/35 border border-lime-400/20 text-[10px] space-y-0.5">
+                          <div className="font-bold text-[#b4f82a] flex items-center justify-between">
+                            <span>
+                              ✓ Dernière chasse auto ({algoLastHuntReport.timestamp})
+                            </span>
+                            <span>
+                              +{algoLastHuntReport.discoveredCount} vidéos
+                            </span>
+                          </div>
+                          <div className="text-slate-400 truncate">
+                            Requêtes :{" "}
+                            {algoLastHuntReport.queriesExecuted.join(" · ")}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Grille des 15 domaines avec boutons - / + pour ajuster ses goûts en direct */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                    {orbitState.domains.map((d) => (
+                      <div
+                        key={d.id}
+                        className={`p-2 rounded-xl flex flex-col gap-1.5 ${
+                          d.secret ? "opacity-55 border-dashed" : ""
+                        }`}
+                        style={{
+                          background: "rgba(255,255,255,0.03)",
+                          border: `1px ${
+                            d.secret ? "dashed" : "solid"
+                          } var(--border)`,
+                        }}
+                      >
+                        <div className="flex items-center justify-between text-[10px] font-bold gap-1">
+                          <span className="truncate">
+                            {d.icon} {d.name}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdjustDomainAffinity(d.id, -5)}
+                              className="w-4 h-4 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer text-[10px]"
+                              title="Diminuer l'affinité (-5%)"
+                            >
+                              -
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleDomainPrivacy(d.id)}
+                              className="font-mono-num shrink-0 cursor-pointer"
+                              style={{ color: "#b4f82a" }}
+                              title="Basculer Public / Secret"
+                            >
+                              {d.affinity}% {d.secret ? "🔒" : ""}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdjustDomainAffinity(d.id, 5)}
+                              className="w-4 h-4 rounded bg-lime-400/20 hover:bg-lime-400/35 text-[#b4f82a] flex items-center justify-center cursor-pointer text-[10px]"
+                              title="Augmenter l'affinité (+5%)"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                        <div className="h-1 rounded-full overflow-hidden bg-white/10">
                           <div
-                            className="h-full rounded-full transition-all duration-500"
+                            className="h-full rounded-full"
                             style={{
-                              width: `${pct}%`,
+                              width: `${d.affinity}%`,
                               background:
-                                "linear-gradient(90deg, var(--accent), var(--accent-2))",
+                                "linear-gradient(90deg, #b4f82a, var(--accent-2))",
                             }}
                           />
                         </div>
                       </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeTopPanel === "downloader" && (
+                <div
+                  className="p-3 rounded-2xl glass-panel space-y-2.5"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, rgba(24, 119, 242, 0.14), rgba(0, 229, 255, 0.08))",
+                    border: "1px solid rgba(56, 189, 248, 0.4)",
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="text-xs font-black text-cyan-300 flex items-center gap-1.5">
+                      <Download className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                      <span>
+                        Téléchargeur Vidéo Facebook / Reels & Importateur .MP4 Direct
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const fbShareUrl =
+                            "https://www.facebook.com/share/r/1dNEyMHG3u/";
+                          setInpUrl(fbShareUrl);
+                          setInpTitle("Facebook Reel #1dNEyMHG3u (MP4 Direct)");
+                          setComposerOpen(true);
+                          handleExtractMp4FromUrl(fbShareUrl);
+                        }}
+                        className="px-2.5 py-1 rounded-lg text-[10px] font-black text-black bg-cyan-300 hover:bg-cyan-200 cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Extraire Reel 1dNEyMHG3u</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setComposerOpen(true);
+                          setTimeout(
+                            () => composerMp4FileRef.current?.click(),
+                            120
+                          );
+                        }}
+                        className="px-2.5 py-1 rounded-lg text-[10px] font-black text-white bg-purple-600 hover:bg-purple-500 cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <Upload className="w-3 h-3" />
+                        <span>📂 Importer .MP4</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTopPanel(null)}
+                        className="text-[11px] font-bold opacity-75 hover:opacity-100 cursor-pointer ml-1"
+                      >
+                        Fermer ✕
+                      </button>
+                    </div>
+                  </div>
+                  <form
+                    onSubmit={handlePublishVideo}
+                    className="space-y-2"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_auto_auto] gap-2">
+                      <input
+                        type="text"
+                        value={inpUrl}
+                        onChange={(e) => {
+                          setInpUrl(e.target.value);
+                          handleLocalClassify(e.target.value, inpTitle);
+                        }}
+                        placeholder="Collez votre lien Facebook (facebook.com/share/r/..., fb.watch/...), YouTube, TikTok..."
+                        className="px-3 py-1.5 rounded-xl text-xs outline-none"
+                        style={{
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border)",
+                          color: "var(--text-main)",
+                        }}
+                      />
+                      <input
+                        type="text"
+                        value={inpTitle}
+                        onChange={(e) => {
+                          setInpTitle(e.target.value);
+                          handleLocalClassify(inpUrl, e.target.value);
+                        }}
+                        placeholder="Titre personnalisé (optionnel)"
+                        className="px-3 py-1.5 rounded-xl text-xs outline-none"
+                        style={{
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border)",
+                          color: "var(--text-main)",
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCopyComposerSiteLink}
+                        className="px-3 py-1.5 rounded-xl text-xs font-extrabold text-black bg-cyan-300 hover:bg-cyan-200 cursor-pointer inline-flex items-center justify-center gap-1 whitespace-nowrap"
+                        title="Créer et copier un lien vers le site qui génère la publication directement sur le site"
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                        <span>
+                          {composerSiteLinkCopied
+                            ? "✓ Lien vers le site copié"
+                            : "Créer lien vers le site"}
+                        </span>
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-3.5 py-1.5 rounded-xl text-xs font-extrabold cursor-pointer inline-flex items-center justify-center gap-1 btn-orbit-lime whitespace-nowrap"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Publier sur le site</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
 
-              {/* Feed Filter Tabs */}
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {[
-                  { id: "all" as FeedFilter, label: "Tout mon Flux" },
-                  {
-                    id: "friends" as FeedFilter,
-                    label: "Amis (WhatsApp / Répertoire)",
-                  },
-                  { id: "youtube" as FeedFilter, label: "YouTube" },
-                  {
-                    id: "vertical" as FeedFilter,
-                    label: "Formats Verticaux (TikTok / Reels / Shorts)",
-                  },
-                  { id: "top95" as FeedFilter, label: "Notes ≥ 9.5/10" },
-                ].map((tab) => {
-                  const active = feedFilter === tab.id;
-                  return (
+              {activeTopPanel === "friends" && (
+                <div className="p-3 rounded-2xl glass-panel space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="text-xs font-extrabold flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>
+                        Amis & Jumeaux de Goûts ({orbitState.twins.length}) · Sources ({activeSocialsCount}/6)
+                      </span>
+                    </div>
                     <button
-                      key={tab.id}
                       type="button"
-                      onClick={() => setFeedFilter(tab.id)}
-                      className="px-3.5 py-2 rounded-full text-xs font-bold cursor-pointer transition-all whitespace-nowrap shrink-0"
-                      style={{
-                        background: active
-                          ? "var(--text-main)"
-                          : "var(--bg-card)",
-                        color: active ? "var(--bg-main)" : "var(--text-muted)",
-                        border: active
-                          ? "1px solid transparent"
-                          : "1px solid var(--border)",
-                      }}
+                      onClick={() => setActiveTopPanel(null)}
+                      className="text-[11px] font-bold opacity-75 hover:opacity-100 cursor-pointer"
                     >
-                      {tab.label}
+                      Fermer ✕
                     </button>
-                  );
-                })}
-              </div>
-
-              {/* Barre Amis & Jumeaux de Goûts (Page 1) + Accès direct Connecteurs RGPD */}
-              <div className="p-4 rounded-2xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="text-xs font-extrabold flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span>
-                      Amis & Jumeaux de Goûts ({orbitState.twins.length}) · Sources connectées ({activeSocialsCount}/6)
-                    </span>
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {orbitState.twins.slice(0, 6).map((tw, idx) => (
                       <span
                         key={idx}
-                        className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white/5 border border-white/10 inline-flex items-center gap-1.5"
+                        className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/5 border border-white/10 inline-flex items-center gap-1"
                       >
                         <span>{tw.name}</span>
                         <span className="text-emerald-400 font-mono-num">
@@ -4446,268 +6281,530 @@ export default function App() {
                       </span>
                     ))}
                   </div>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenConnectorModal("youtube")}
-                    className="px-3.5 py-2 rounded-xl text-xs font-black text-white bg-red-600 hover:bg-red-500 cursor-pointer inline-flex items-center gap-1.5 shadow-md"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>📥 Importer mon Historique et mes Abonnements YouTube</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleGenerateCustomAiDna}
-                    className="px-3.5 py-2 rounded-xl text-xs font-black text-black cursor-pointer inline-flex items-center gap-1.5"
-                    style={{
-                      background: "linear-gradient(135deg, #00e676, #00e5ff)",
-                    }}
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Générer mon ADN sur-mesure</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenConnectorModal("whatsapp")}
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/30 cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <Smartphone className="w-3.5 h-3.5" />
-                    <span>Contacts / WhatsApp</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenConnectorModal()}
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer glass-panel glass-panel-interactive inline-flex items-center gap-1.5"
-                  >
-                    <Link2 className="w-3.5 h-3.5 text-cyan-300" />
-                    <span>Concentrateur d&apos;Affinités ({activeSocialsCount}/6)</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Barre de Partage Direct Rapide (Page 1 & redirection instantanée vers Ma Page) */}
-              <div
-                className="p-4 rounded-2xl glass-panel space-y-2.5"
-                style={{
-                  borderColor: "rgba(24, 119, 242, 0.45)",
-                  background:
-                    "linear-gradient(135deg, rgba(24, 119, 242, 0.12), rgba(124, 92, 255, 0.08))",
-                }}
-              >
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="text-xs font-extrabold flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-500/25 text-blue-300 border border-blue-400/40">
-                      Facebook · YouTube · TikTok · Insta
-                    </span>
-                    <span>
-                      📤 Intégrer une vidéo Facebook (Watch, Reel, Share) ou YouTube directement sur Ma Page
-                    </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenConnectorModal("youtube")}
+                      className="px-2.5 py-1.5 rounded-xl text-[11px] font-black text-white bg-red-600 hover:bg-red-500 cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <Upload className="w-3 h-3" />
+                      <span>Importer YouTube</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenConnectorModal("whatsapp")}
+                      className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-400/30 cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <Smartphone className="w-3 h-3" />
+                      <span>Contacts / WhatsApp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenConnectorModal()}
+                      className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold cursor-pointer glass-panel glass-panel-interactive inline-flex items-center gap-1"
+                    >
+                      <Link2 className="w-3 h-3 text-cyan-300" />
+                      <span>Connecteurs ({activeSocialsCount}/6)</span>
+                    </button>
                   </div>
-                </div>
-                <form
-                  onSubmit={handlePublishVideo}
-                  className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_auto] gap-2"
-                >
-                  <input
-                    type="text"
-                    value={inpUrl}
-                    onChange={(e) => {
-                      setInpUrl(e.target.value);
-                      handleLocalClassify(e.target.value, inpTitle);
-                    }}
-                    placeholder="Collez votre lien Facebook (facebook.com/share/v/..., fb.watch/..., Reel), YouTube ou code <iframe>..."
-                    className="px-3.5 py-2.5 rounded-xl text-xs outline-none"
-                    style={{
-                      background: "var(--bg-input)",
-                      border: "1px solid var(--border)",
-                      color: "var(--text-main)",
-                    }}
-                  />
-                  <input
-                    type="text"
-                    value={inpTitle}
-                    onChange={(e) => {
-                      setInpTitle(e.target.value);
-                      handleLocalClassify(inpUrl, e.target.value);
-                    }}
-                    placeholder="Titre personnalisé (optionnel)"
-                    className="px-3.5 py-2.5 rounded-xl text-xs outline-none"
-                    style={{
-                      background: "var(--bg-input)",
-                      border: "1px solid var(--border)",
-                      color: "var(--text-main)",
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2.5 rounded-xl text-xs font-extrabold text-white cursor-pointer inline-flex items-center justify-center gap-1.5 btn-couture whitespace-nowrap"
-                    style={{
-                      background: "linear-gradient(135deg, #1877F2, var(--accent))",
-                    }}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Intégrer sur Ma Page</span>
-                  </button>
-                </form>
-              </div>
-
-              {/* Video Grid */}
-              {filteredFeedVideos.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {filteredFeedVideos.map((v) => (
-                    <VideoCard
-                      key={v.id}
-                      video={v}
-                      isInWatchLater={watchLaterIds.includes(v.id)}
-                      isWatched={watchedIds.includes(v.id)}
-                      onToggleWatchLater={handleToggleWatchLater}
-                      onPlayPip={handleLaunchPip}
-                      onRateVideo={handleRateVideo}
-                      onAddComment={handleAddComment}
-                      onTriggerReaction={handleTriggerReaction}
-                      onMarkWatched={handleMarkVideoWatched}
-                      onRepost={handleRepost}
-                      onSummarizeVideo={handleSummarizeVideo}
-                      onTranslateComment={handleTranslateComment}
-                      onOpenCinema={handleLaunchCinema}
-                      onPlayAudioMode={(vid) => {
-                        setAudioModeVideo(vid);
-                        setAudioPlaying(true);
-                        handleMarkVideoWatched(vid.id);
-                      }}
-                      onAddToJukebox={handleAddToJukebox}
-                      onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="p-8 rounded-3xl glass-panel text-center space-y-3">
-                  <div className="text-base font-bold font-display">
-                    Toutes les vidéos de ce filtre ont déjà été vues !
-                  </div>
-                  <p
-                    className="text-xs max-w-md mx-auto"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    Le filtre intelligent Anti-Déjà-Vu masque les{" "}
-                    {watchedIds.length} vidéos déjà lancées ou notées.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleToggleHideWatched}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer btn-couture"
-                    style={{ background: "var(--accent)" }}
-                  >
-                    Réafficher toutes les vidéos
-                  </button>
                 </div>
               )}
+
+              {/* SECTION "| À NE PAS MANQUER" — EN-TÊTE STYLE MAQUETTE ORBIT + FILTRES + GRILLE VIDÉO */}
+              <div id="orbit-a-ne-pas-manquer" className="space-y-2.5 pt-1">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-1 h-5 rounded-full shrink-0"
+                      style={{ backgroundColor: "#b4f82a" }}
+                    />
+                    <h2 className="text-sm sm:text-base font-extrabold font-display tracking-tight text-white">
+                      À ne pas manquer
+                    </h2>
+                    {activeSpaceDomain !== "Tous" && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-lime-400/15 text-[#b4f82a] border border-lime-400/30">
+                        {activeSpaceDomain}
+                      </span>
+                    )}
+                    <span
+                      className="text-xs font-mono-num"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      ({filteredFeedVideos.length})
+                    </span>
+
+                    <button
+                      type="button"
+                      disabled={isAlgoHunting}
+                      onClick={() =>
+                        void runAlgorithmicDiscovery({
+                          silent: false,
+                          count: 4,
+                        })
+                      }
+                      className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold inline-flex items-center gap-1 cursor-pointer btn-orbit-lime disabled:opacity-50"
+                      title="Lancer l'algorithme autonome pour chercher de nouvelles vidéos selon vos goûts"
+                    >
+                      {isAlgoHunting ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Zap className="w-3 h-3" />
+                      )}
+                      <span>
+                        {isAlgoHunting
+                          ? "Recherche algo..."
+                          : "Chasser selon mes goûts"}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Filtres rapides + Voir tout */}
+                  <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                    {[
+                      {
+                        id: "all" as FeedFilter,
+                        label: `Tous (${unlockedVideos.length})`,
+                      },
+                      {
+                        id: "algo" as FeedFilter,
+                        label: `⚡ Pour Moi · Algo (${
+                          unlockedVideos.filter((v) => v.algoDiscovered).length
+                        })`,
+                      },
+                      {
+                        id: "youtube" as FeedFilter,
+                        label: `▶ YT (${
+                          unlockedVideos.filter((v) => v.platform === "youtube")
+                            .length
+                        })`,
+                      },
+                      {
+                        id: "tiktok" as FeedFilter,
+                        label: `🎵 TikTok (${
+                          unlockedVideos.filter((v) => v.platform === "tiktok")
+                            .length
+                        })`,
+                      },
+                      {
+                        id: "instagram" as FeedFilter,
+                        label: `📸 Insta (${
+                          unlockedVideos.filter(
+                            (v) => v.platform === "instagram"
+                          ).length
+                        })`,
+                      },
+                      {
+                        id: "facebook" as FeedFilter,
+                        label: `📘 FB (${
+                          unlockedVideos.filter(
+                            (v) => v.platform === "facebook"
+                          ).length
+                        })`,
+                      },
+                      {
+                        id: "vertical" as FeedFilter,
+                        label: "📱 9:16",
+                      },
+                      {
+                        id: "friends" as FeedFilter,
+                        label: "👥 Amis",
+                      },
+                      { id: "top95" as FeedFilter, label: "★ ≥9.5" },
+                    ].map((tab) => {
+                      const active =
+                        feedFilter === tab.id && activeSpaceDomain === "Tous";
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => {
+                            setFeedFilter(tab.id);
+                            setActiveSpaceDomain("Tous");
+                          }}
+                          className="px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer transition-all whitespace-nowrap shrink-0"
+                          style={{
+                            background: active
+                              ? "#b4f82a"
+                              : "var(--bg-card)",
+                            color: active ? "#060a13" : "var(--text-muted)",
+                            border: active
+                              ? "1px solid transparent"
+                              : "1px solid var(--border)",
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      type="button"
+                      onClick={handleToggleHideWatched}
+                      className="px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer transition-all whitespace-nowrap shrink-0"
+                      style={{
+                        background: hideWatched
+                          ? "rgba(180, 248, 42, 0.16)"
+                          : "var(--bg-card)",
+                        border: `1px solid ${
+                          hideWatched ? "#b4f82a" : "var(--border)"
+                        }`,
+                        color: hideWatched ? "#b4f82a" : "var(--text-main)",
+                      }}
+                      title="Masquer les vidéos déjà vues"
+                    >
+                      {hideWatched ? (
+                        <EyeOff className="w-3 h-3 text-[#b4f82a]" />
+                      ) : (
+                        <Eye className="w-3 h-3 text-cyan-400" />
+                      )}
+                      <span>
+                        {hideWatched
+                          ? `Inédites (${watchedIds.length})`
+                          : `Non-vues (${watchedIds.length})`}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFeedFilter("all");
+                        setActiveSpaceDomain("Tous");
+                      }}
+                      className="ml-1 text-[11px] font-bold text-slate-300 hover:text-[#b4f82a] inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <span>Voir tout</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Video Grid — Lecture immédiate avec son actif */}
+                {filteredFeedVideos.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-0.5">
+                    {filteredFeedVideos.map((v, idx) => (
+                      <VideoCard
+                        key={`feed-${v.id}-${idx}`}
+                        video={v}
+                        isInWatchLater={watchLaterIds.includes(v.id)}
+                        isWatched={watchedIds.includes(v.id)}
+                        onToggleWatchLater={handleToggleWatchLater}
+                        onPlayPip={handleLaunchPip}
+                        onRateVideo={handleRateVideo}
+                        onAddComment={handleAddComment}
+                        onTriggerReaction={handleTriggerReaction}
+                        onMarkWatched={handleMarkVideoWatched}
+                        onRepost={handleRepost}
+                        onSummarizeVideo={handleSummarizeVideo}
+                        onTranslateComment={handleTranslateComment}
+                        onOpenCinema={handleLaunchCinema}
+                        onPlayAudioMode={(vid) => {
+                          setAudioModeVideo(vid);
+                          setAudioPlaying(true);
+                          handleMarkVideoWatched(vid.id);
+                        }}
+                        onAddToJukebox={handleAddToJukebox}
+                        onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-2xl glass-panel text-center space-y-2">
+                    <div className="text-sm font-bold font-display">
+                      Aucune vidéo ne correspond à ce filtre pour le moment.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFeedFilter("all");
+                        setActiveSpaceDomain("Tous");
+                        if (hideWatched) handleToggleHideWatched();
+                      }}
+                      className="px-4 py-1.5 rounded-full text-xs font-extrabold cursor-pointer btn-orbit-lime"
+                    >
+                      Réafficher toutes les vidéos
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* SECTION "| TES CENTRES D'INTÉRÊT" + CARTE "TU ES UNIQUE" (COMME SUR LA MAQUETTE) */}
+              <div className="grid grid-cols-1 lg:grid-cols-[1.65fr_1fr] gap-4 pt-3">
+                {/* Tes centres d'intérêt */}
+                <div className="space-y-2.5">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-1 h-4 rounded-full"
+                        style={{ backgroundColor: "#b4f82a" }}
+                      />
+                      <h3 className="text-sm sm:text-base font-extrabold font-display text-white">
+                        Tes centres d&apos;intérêt
+                      </h3>
+                    </div>
+                    <p
+                      className="text-xs mt-0.5"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Découvre des contenus adaptés à tes passions
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
+                    {[
+                      {
+                        label: "Technologie",
+                        emoji: "🤖",
+                        gradient:
+                          "radial-gradient(circle at 50% 25%, rgba(56, 189, 248, 0.35), rgba(14, 21, 38, 0.95))",
+                      },
+                      {
+                        label: "Histoire",
+                        emoji: "🏛️",
+                        gradient:
+                          "radial-gradient(circle at 50% 25%, rgba(251, 191, 36, 0.32), rgba(14, 21, 38, 0.95))",
+                      },
+                      {
+                        label: "Culture",
+                        emoji: "🎨",
+                        gradient:
+                          "radial-gradient(circle at 50% 25%, rgba(244, 114, 182, 0.32), rgba(14, 21, 38, 0.95))",
+                      },
+                      {
+                        label: "Sport",
+                        emoji: "⚡",
+                        gradient:
+                          "radial-gradient(circle at 50% 25%, rgba(251, 146, 60, 0.32), rgba(14, 21, 38, 0.95))",
+                      },
+                      {
+                        label: "Sciences",
+                        emoji: "🌌",
+                        gradient:
+                          "radial-gradient(circle at 50% 25%, rgba(129, 140, 248, 0.35), rgba(14, 21, 38, 0.95))",
+                      },
+                      {
+                        label: "Nature",
+                        emoji: "🌿",
+                        gradient:
+                          "radial-gradient(circle at 50% 25%, rgba(52, 211, 153, 0.35), rgba(14, 21, 38, 0.95))",
+                      },
+                    ].map((interest) => {
+                      const isSelected = activeSpaceDomain === interest.label;
+                      return (
+                        <button
+                          key={interest.label}
+                          type="button"
+                          onClick={() => {
+                            setActiveSpaceDomain((prev) =>
+                              prev === interest.label ? "Tous" : interest.label
+                            );
+                            const el = document.getElementById(
+                              "orbit-a-ne-pas-manquer"
+                            );
+                            el?.scrollIntoView({ behavior: "smooth" });
+                          }}
+                          className={`p-3 rounded-2xl flex flex-col items-center justify-between gap-2 cursor-pointer transition-all hover:-translate-y-0.5 ${
+                            isSelected
+                              ? "ring-2 ring-[#b4f82a]"
+                              : "border border-white/10"
+                          }`}
+                          style={{
+                            background: interest.gradient,
+                          }}
+                        >
+                          <span className="text-2xl py-1">
+                            {interest.emoji}
+                          </span>
+                          <span className="text-[11px] font-extrabold text-white truncate w-full text-center">
+                            {interest.label}
+                          </span>
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveTopPanel((p) => (p === "dna" ? null : "dna"))
+                      }
+                      className="p-3 rounded-2xl glass-panel glass-panel-interactive flex flex-col items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-5 h-5 text-slate-300" />
+                      <span
+                        className="text-[11px] font-bold"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Ajouter
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Carte "Tu es unique — Tes choix construisent ton univers Orbit" */}
+                <div
+                  className="p-4 rounded-2xl border flex flex-col justify-between relative overflow-hidden"
+                  style={{
+                    background:
+                      "radial-gradient(circle at 80% 85%, rgba(163, 230, 53, 0.16), rgba(56, 189, 248, 0.1) 45%, rgba(12, 19, 34, 0.95) 85%)",
+                    borderColor: "rgba(163, 230, 53, 0.28)",
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-[#0b1325] border border-lime-400/35 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-5 h-5 text-[#b4f82a]" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm sm:text-base font-extrabold font-display text-white">
+                        Tu es unique
+                      </h4>
+                      <p
+                        className="text-xs mt-0.5 leading-relaxed"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Tes choix construisent ton univers Orbit sur les 15
+                        domaines culturels.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Courbe lumineuse d'affinité Orbit */}
+                  <div className="pt-3">
+                    <svg
+                      viewBox="0 0 280 54"
+                      className="w-full h-12 overflow-visible"
+                      fill="none"
+                    >
+                      <path
+                        d="M 4 44 Q 45 40, 75 28 T 145 30 T 215 16 T 274 8"
+                        stroke="#b4f82a"
+                        strokeWidth="2.5"
+                        fill="none"
+                      />
+                      <circle cx="75" cy="28" r="3" fill="#38bdf8" />
+                      <circle cx="145" cy="30" r="3" fill="#b4f82a" />
+                      <circle cx="215" cy="16" r="3.5" fill="#38bdf8" />
+                      <circle cx="274" cy="8" r="4" fill="#b4f82a" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION "LES PLUS POPULAIRES" (TOP 1, 2, 3) + BANNIÈRE FINALE "PRÊT À DÉCOUVRIR QUELQUE CHOSE DE NOUVEAU ?" */}
+              <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_1fr] gap-4 pt-2">
+                {/* Les plus populaires (Top 1, 2, 3) */}
+                <div className="p-4 rounded-2xl glass-panel space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-extrabold font-display text-white">
+                      Les plus populaires
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setActivePage("p3")}
+                      className="text-[11px] font-bold text-slate-300 hover:text-[#b4f82a] inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>Voir tout</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {unlockedVideos
+                      .slice()
+                      .sort((a, b) => b.score - a.score)
+                      .slice(0, 3)
+                      .map((popVid, idx) => (
+                        <button
+                          key={popVid.id}
+                          type="button"
+                          onClick={() => handleLaunchCinema(popVid)}
+                          className="w-full p-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 flex items-center justify-between gap-3 text-left cursor-pointer transition-all group"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-base font-black font-mono-num text-[#b4f82a] w-4 text-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <img
+                              src={popVid.thumb}
+                              alt={popVid.title}
+                              referrerPolicy="no-referrer"
+                              className="w-14 h-9 rounded-lg object-cover shrink-0 bg-black"
+                            />
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-white truncate group-hover:text-[#b4f82a] transition-colors">
+                                {popVid.title}
+                              </div>
+                              <div
+                                className="text-[10px] truncate"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                {popVid.domain} ·{" "}
+                                <span className="font-mono-num">
+                                  {popVid.durationMinutes || 18} min
+                                </span>{" "}
+                                ·{" "}
+                                <span className="font-mono-num">
+                                  {popVid.score.toFixed(1)}/10
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-white shrink-0" />
+                        </button>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Bannière d'appel à l'action : "Prêt à découvrir quelque chose de nouveau ?" */}
+                <div
+                  className="p-5 rounded-2xl border flex flex-col justify-between gap-4 relative overflow-hidden"
+                  style={{
+                    background:
+                      "linear-gradient(125deg, rgba(13, 25, 46, 0.96) 0%, rgba(30, 41, 59, 0.92) 55%, rgba(163, 230, 53, 0.18) 100%)",
+                    borderColor: "rgba(148, 163, 184, 0.22)",
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-full bg-lime-400/15 border border-lime-400/40 flex items-center justify-center shrink-0">
+                      <Compass className="w-5 h-5 text-[#b4f82a]" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm sm:text-base font-extrabold font-display text-white">
+                        Prêt à découvrir quelque chose de nouveau ?
+                      </h3>
+                      <p
+                        className="text-xs mt-1 leading-relaxed"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Lance un défi, explore un sujet, ou plonge dans une
+                        vidéo sélectionnée pour toi.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                      Plus qu&apos;une application — Une terre d&apos;exploration
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActivePage("p4")}
+                      className="px-4 py-2 rounded-xl text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer btn-orbit-lime"
+                    >
+                      <span>C&apos;est parti</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
             </section>
           )}
 
           {/* ==========================================================
-              PAGE 2 : MA PAGE + FONCTIONNALITÉ 16 (MODE PORTFOLIO CRÉATEUR)
-              + FONCTIONNALITÉ 20 (GÉNÉRATEUR DE QR CODE DE CETTE SÉLECTION)
+              PAGE 2 : MA PAGE — BLOCS DU HAUT MASQUÉS ET GROUPÉS PAR DEUX
+              (EX: DÉFI DE CURATION & MON EMPREINTE CULTURELLE CÔTE À CÔTE)
+              POUR VOIR LA PREMIÈRE VIDÉO IMMÉDIATEMENT EN HAUT
               ========================================================== */}
           {activePage === "p2" && (
-            <section className="space-y-6">
-              {/* Top Mode Switcher Bar : Mode Portfolio Professionnel vs Profil Curation Standard */}
-              <div className="p-4 sm:p-5 rounded-3xl glass-panel flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shrink-0"
-                    style={{
-                      background: orbitState.creatorPortfolioMode
-                        ? "linear-gradient(135deg, #00e5ff, #7c5cff)"
-                        : "rgba(255,255,255,0.08)",
-                    }}
-                  >
-                    <Briefcase className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-extrabold font-display flex items-center gap-2">
-                      <span>Mode « Portfolio Professionnel » (Créateur)</span>
-                      {orbitState.creatorPortfolioMode && (
-                        <span className="text-[11px] font-mono-num text-cyan-300">
-                          · Galerie d&apos;Art Plein Cadre Active
-                        </span>
-                      )}
-                    </div>
-                    <p
-                      className="text-xs"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      Basculez votre profil en galerie haute définition mettant en avant vos propres créations (vidéos, Light Painting, projets visuels & musicaux).
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2.5 flex-wrap shrink-0">
-                  {/* Bouton Lecture Continue Reels sur Ma Page (Publications, Coups de cœur & Portfolio) */}
-                  <button
-                    type="button"
-                    onClick={() => setFeedViewMode("immersion")}
-                    className="px-4 py-2.5 rounded-2xl text-xs font-black text-white cursor-pointer inline-flex items-center gap-2 transition-all btn-couture"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #00e5ff, var(--accent))",
-                      boxShadow: "0 6px 20px rgba(0, 229, 255, 0.28)",
-                    }}
-                  >
-                    <Smartphone className="w-4 h-4" />
-                    <span>📱 Mode Immersion Reels</span>
-                  </button>
-
-                  {/* Interrupteur Mode Portfolio Professionnel (Fonctionnalité 16) */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setOrbitState((prev) => ({
-                        ...prev,
-                        creatorPortfolioMode: !prev.creatorPortfolioMode,
-                      }))
-                    }
-                    className="px-4 py-2.5 rounded-2xl text-xs font-black cursor-pointer inline-flex items-center gap-2 transition-all"
-                    style={{
-                      background: orbitState.creatorPortfolioMode
-                        ? "linear-gradient(135deg, #00e5ff, #7c5cff)"
-                        : "var(--bg-input)",
-                      color: orbitState.creatorPortfolioMode
-                        ? "#ffffff"
-                        : "var(--text-main)",
-                      border: orbitState.creatorPortfolioMode
-                        ? "1px solid rgba(255,255,255,0.35)"
-                        : "1px solid var(--border)",
-                      boxShadow: orbitState.creatorPortfolioMode
-                        ? "0 8px 25px rgba(0, 229, 255, 0.3)"
-                        : "none",
-                    }}
-                  >
-                    <Briefcase className="w-3.5 h-3.5" />
-                    <span>
-                      {orbitState.creatorPortfolioMode
-                        ? "✓ Mode Portfolio Professionnel Actif"
-                        : "Activer Mode Portfolio Professionnel"}
-                    </span>
-                  </button>
-
-                  {/* Fonctionnalité 20 : Bouton '📱 Générer QR Code de cette sélection' sur la Page 2 */}
-                  <button
-                    type="button"
-                    onClick={handleOpenQrForPage2}
-                    className="px-4 py-2.5 rounded-2xl text-xs font-bold cursor-pointer inline-flex items-center gap-2 glass-panel glass-panel-interactive"
-                    style={{
-                      borderColor: "rgba(0, 229, 255, 0.4)",
-                      color: "var(--accent-2)",
-                    }}
-                  >
-                    <QrCode className="w-4 h-4" />
-                    <span>📱 Générer QR Code de cette sélection</span>
-                  </button>
-                </div>
-              </div>
-
+            <section className="space-y-2">
               {orbitState.creatorPortfolioMode ? (
                 /* FONCTIONNALITÉ 16 : VUE PORTFOLIO CRÉATEUR PLEIN CADRE HAUTE DÉFINITION */
                 <CreatorPortfolioView
@@ -4728,443 +6825,41 @@ export default function App() {
                   onShowToast={showToast}
                 />
               ) : (
-                /* VUE PROFIL DE CURATION STANDARD */
                 <>
-                  {/* Profile Card with Idée 3 Scout Badges */}
-                  <div className="p-6 rounded-3xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
+                  {/* Barre compacte 1 ligne : Identité + Onglets Ma Page + Portfolio/QR */}
+                  <div className="flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <div
-                        className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shrink-0"
+                        className="w-6 h-6 rounded-lg flex items-center justify-center font-black text-[11px] text-white shrink-0"
                         style={{
                           background:
                             "linear-gradient(135deg, var(--accent), var(--accent-2))",
-                          boxShadow: "0 0 24px var(--accent-glow)",
                         }}
                       >
                         {orbitState.profile.initials}
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2.5 flex-wrap">
-                          <h2 className="text-xl font-black font-display">
-                            {orbitState.profile.name}
-                          </h2>
-                          <span
-                            className="text-xs font-bold inline-flex items-center gap-1"
-                            style={{ color: "var(--accent-2)" }}
-                          >
-                            · <Award className="w-3.5 h-3.5" /> Éclaireur Rang{" "}
-                            {orbitState.profile.scoutBadges || 4} (
-                            <span className="font-mono-num">
-                              {orbitState.profile.scoutPoints || 145} pts
-                            </span>
-                            )
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditName(orbitState.profile.name);
-                              setEditBio(orbitState.profile.bio);
-                              setEditingProfile(!editingProfile);
-                            }}
-                            className="px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer glass-panel whitespace-nowrap shrink-0"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                            <span>Modifier</span>
-                          </button>
-                        </div>
-                        <p
-                          className="text-xs mt-1"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          {orbitState.profile.bio}
-                        </p>
-                        <div
-                          className="flex items-center gap-2 mt-2.5 flex-wrap text-[11px]"
-                          style={{ color: "var(--accent-2)" }}
-                        >
-                          {activeSocialsCount > 0 ? (
-                            orbitState.socials
-                              .filter((s) => s.active && s.realConsentVerified)
-                              .map((s, idx) => (
-                                <React.Fragment key={s.id}>
-                                  {idx > 0 && <span aria-hidden="true">·</span>}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenConnectorModal(s.id)}
-                                    className="font-semibold text-emerald-300 hover:underline cursor-pointer"
-                                  >
-                                    {s.name.split(" ")[0]} Sync ✓ (
-                                    {s.importedProofText || "Importé"})
-                                  </button>
-                                </React.Fragment>
-                              ))
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenConnectorModal()}
-                              className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-400/30 font-bold cursor-pointer inline-flex items-center gap-1.5"
-                            >
-                              <ShieldCheck className="w-3.5 h-3.5" />
-                              <span>
-                                Aucun réseau connecté (Inactif) — Cliquez pour connecter vos sources (RGPD)
-                              </span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-wrap self-start sm:self-center">
-                      <button
-                        type="button"
-                        onClick={() => setOpenModal("vault")}
-                        className="px-3.5 py-2.5 rounded-xl text-xs font-black text-white cursor-pointer btn-couture inline-flex items-center gap-1.5"
-                        style={{
-                          background: "linear-gradient(135deg, #059669, #0284c7)",
-                        }}
-                      >
-                        <ShieldCheck className="w-4 h-4" />
-                        <span>🛡️ Mon coffre ORBIT</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActivePage("p5");
-                          window.scrollTo({ top: 0, behavior: "smooth" });
-                        }}
-                        className="px-3.5 py-2.5 rounded-xl text-xs font-bold cursor-pointer glass-panel glass-panel-interactive inline-flex items-center gap-1.5"
-                      >
-                        <Link2 className="w-4 h-4 text-cyan-300" />
-                        <span>Réglage et Importation ({activeSocialsCount}/6)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setOpenModal("capsule")}
-                        className="px-4 py-2.5 rounded-xl text-xs font-bold text-white inline-flex items-center gap-2 cursor-pointer btn-couture whitespace-nowrap shrink-0"
-                        style={{
-                          background:
-                            "linear-gradient(135deg, #00c853, #009624)",
-                        }}
-                      >
-                        <Gift className="w-4 h-4" />
-                        <span>Partager ma Page à un ami</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Inline Profile Editor */}
-                  {editingProfile && (
-                    <form
-                      onSubmit={handleSaveProfile}
-                      className="p-5 rounded-2xl glass-panel space-y-3"
-                    >
-                      <div className="text-sm font-bold font-display">
-                        Modifier mon profil Orbit
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          placeholder="Nom ou pseudo"
-                          className="px-3.5 py-2 rounded-lg text-xs outline-none"
-                          style={{
-                            background: "var(--bg-input)",
-                            border: "1px solid var(--border)",
-                            color: "var(--text-main)",
-                          }}
-                        />
-                        <input
-                          type="text"
-                          value={editBio}
-                          onChange={(e) => setEditBio(e.target.value)}
-                          placeholder="Votre bio"
-                          className="px-3.5 py-2 rounded-lg text-xs outline-none"
-                          style={{
-                            background: "var(--bg-input)",
-                            border: "1px solid var(--border)",
-                            color: "var(--text-main)",
-                          }}
-                        />
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setEditingProfile(false)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer glass-panel"
-                        >
-                          Annuler
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-4 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer btn-couture"
-                          style={{ background: "var(--accent)" }}
-                        >
-                          Enregistrer
-                        </button>
-                      </div>
-                    </form>
-                  )}
-
-                  {/* Idée 7 : Défis de Curation Hebdomadaires */}
-                  <div className="p-5 rounded-3xl glass-panel space-y-3">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div>
-                        <h3 className="text-sm font-extrabold font-display flex items-center gap-2">
-                          <Flame className="w-4 h-4 text-amber-400" />
-                          <span>Défis de Curation Hebdomadaires</span>
-                        </h3>
-                        <p
-                          className="text-xs"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          Relevez les défis thématiques de la communauté pour débloquer des badges d&apos;Éclaireur.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                      {orbitState.challenges.map((ch) => {
-                        const pct = Math.round(
-                          (ch.userProgress / ch.targetCount) * 100
-                        );
-                        return (
-                          <div
-                            key={ch.id}
-                            className="p-3.5 rounded-2xl space-y-2"
-                            style={{
-                              background: "rgba(255,255,255,0.03)",
-                              border: "1px solid var(--border)",
-                            }}
-                          >
-                            <div className="flex items-center justify-between text-xs font-bold">
-                              <span style={{ color: "var(--accent-2)" }}>
-                                {ch.weekLabel} · {ch.targetDomain}
-                              </span>
-                              <span className="font-mono-num">
-                                {ch.userProgress}/{ch.targetCount}
-                              </span>
-                            </div>
-                            <div className="text-xs font-extrabold">
-                              {ch.title}
-                            </div>
-                            <div
-                              className="text-[11px]"
-                              style={{ color: "var(--text-muted)" }}
-                            >
-                              {ch.description}
-                            </div>
-                            <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
-                              <div
-                                className="h-full rounded-full"
-                                style={{
-                                  width: `${pct}%`,
-                                  background:
-                                    "linear-gradient(90deg, var(--accent), var(--accent-2))",
-                                }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Cultural DNA Grid */}
-                  <div className="p-6 rounded-3xl glass-panel space-y-4">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-base font-extrabold font-display">
-                          Mon Empreinte Culturelle (15 Domaines)
-                        </h3>
-                        <p
-                          className="text-xs mt-0.5"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          Calculée mathématiquement selon votre historique YouTube, vos abonnements et vos notes. Cliquez sur{" "}
-                          <strong>Public / Secret</strong> pour masquer un domaine aux visiteurs tout en le gardant actif sur votre Radar.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActivePage("p5");
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }}
-                          className="px-3.5 py-2 rounded-xl text-xs font-black text-white bg-red-600 hover:bg-red-500 cursor-pointer inline-flex items-center gap-1.5"
-                        >
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>📥 Réglage et Importation (YouTube, TikTok, Insta)</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleGenerateCustomAiDna}
-                          className="px-3.5 py-2 rounded-xl text-xs font-black text-black cursor-pointer inline-flex items-center gap-1.5"
-                          style={{
-                            background: "linear-gradient(135deg, #00e676, #00e5ff)",
-                          }}
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Générer mon ADN sur-mesure</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {orbitState.domains.map((d) => (
-                        <div
-                          key={d.id}
-                          className={`p-3.5 rounded-2xl flex flex-col gap-2 transition-all ${
-                            d.secret ? "opacity-55 border-dashed" : ""
-                          }`}
-                          style={{
-                            background: "rgba(255,255,255,0.03)",
-                            border: `1px ${
-                              d.secret ? "dashed" : "solid"
-                            } var(--border)`,
-                            boxShadow:
-                              "inset 0 1px 0 0 rgba(255,255,255,0.06)",
-                          }}
-                        >
-                          <div className="flex items-center justify-between text-xs font-bold">
-                            <span className="truncate">
-                              {d.icon} {d.name}
-                            </span>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span
-                                className="font-mono-num"
-                                style={{ color: "var(--accent-2)" }}
-                              >
-                                {d.affinity}%
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleDomainPrivacy(d.id)}
-                                className="inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer opacity-80 hover:opacity-100"
-                                style={{ color: "var(--text-muted)" }}
-                              >
-                                {d.secret ? (
-                                  <>
-                                    <Lock className="w-3 h-3" />
-                                    <span>Secret</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Eye className="w-3 h-3" />
-                                    <span>Public</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="h-1.5 rounded-full overflow-hidden bg-white/10">
-                            <div
-                              className="h-full rounded-full transition-all duration-500"
-                              style={{
-                                width: `${d.affinity}%`,
-                                background:
-                                  "linear-gradient(90deg, var(--accent), var(--accent-2))",
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Barre de Partage Direct sur Ma Page (Facebook, YouTube, TikTok, Instagram) */}
-                  <div
-                    className="p-4 sm:p-5 rounded-3xl glass-panel space-y-3"
-                    style={{
-                      borderColor: "rgba(24, 119, 242, 0.45)",
-                      background:
-                        "linear-gradient(135deg, rgba(24, 119, 242, 0.12), rgba(124, 92, 255, 0.08))",
-                    }}
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/35">
-                          Intégration Directe Ma Page
-                        </span>
-                        <h3 className="text-xs sm:text-sm font-extrabold font-display">
-                          📤 Partager une vidéo Facebook, YouTube, TikTok ou Instagram sur Ma Page
-                        </h3>
-                      </div>
-                      <span
-                        className="text-[11px] font-mono-num"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        Vos partages s&apos;affichent immédiatement en #1 de « Mon Mur de Publications »
+                      <span className="text-xs sm:text-sm font-black font-display whitespace-nowrap">
+                        {orbitState.profile.name}
                       </span>
                     </div>
 
-                    <form
-                      onSubmit={handlePublishVideo}
-                      className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_auto] gap-2.5"
-                    >
-                      <input
-                        type="text"
-                        value={inpUrl}
-                        onChange={(e) => {
-                          setInpUrl(e.target.value);
-                          handleLocalClassify(e.target.value, inpTitle);
-                        }}
-                        placeholder="Collez votre lien vidéo Facebook (Watch / Reel / Share), YouTube, TikTok, Instagram ou code <iframe>..."
-                        className="px-3.5 py-2.5 rounded-xl text-xs outline-none"
-                        style={{
-                          background: "var(--bg-input)",
-                          border: "1px solid var(--border)",
-                          color: "var(--text-main)",
-                        }}
-                      />
-                      <input
-                        type="text"
-                        value={inpTitle}
-                        onChange={(e) => {
-                          setInpTitle(e.target.value);
-                          handleLocalClassify(inpUrl, e.target.value);
-                        }}
-                        placeholder="Titre ou note personnelle (optionnel)"
-                        className="px-3.5 py-2.5 rounded-xl text-xs outline-none"
-                        style={{
-                          background: "var(--bg-input)",
-                          border: "1px solid var(--border)",
-                          color: "var(--text-main)",
-                        }}
-                      />
-                      <button
-                        type="submit"
-                        className="px-5 py-2.5 rounded-xl text-xs font-extrabold text-white cursor-pointer inline-flex items-center justify-center gap-1.5 btn-couture whitespace-nowrap"
-                        style={{
-                          background:
-                            "linear-gradient(135deg, #1877F2, var(--accent))",
-                        }}
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Intégrer sur Ma Page</span>
-                      </button>
-                    </form>
-                  </div>
-
-                  {/* Profile Tabs */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex gap-2 overflow-x-auto pb-1">
+                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
                       {[
                         {
                           id: "wall" as ProfileTab,
-                          label: "Mon Mur de Publications",
+                          label: `Mon Mur (${filteredProfileVideos.length})`,
                         },
                         {
                           id: "favs" as ProfileTab,
-                          label: "Mes Coups de Cœur (Notés ≥ 9.5)",
+                          label: "★ Coups de Cœur",
                         },
                         {
                           id: "secret" as ProfileTab,
-                          label: "Mon Jardin Secret (Catégories masquées)",
+                          label: "🔒 Jardin Secret",
                         },
                         {
                           id: "capsules" as ProfileTab,
-                          label: `⏳ Time-Capsules Programmées (${lockedTimeCapsules.length})`,
+                          label: `⏳ Capsules (${lockedTimeCapsules.length})`,
                         },
                       ].map((t) => {
                         const active = profileTab === t.id;
@@ -5173,7 +6868,7 @@ export default function App() {
                             key={t.id}
                             type="button"
                             onClick={() => setProfileTab(t.id)}
-                            className="px-3.5 py-2 rounded-full text-xs font-bold cursor-pointer transition-all whitespace-nowrap shrink-0"
+                            className="px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer transition-all whitespace-nowrap shrink-0"
                             style={{
                               background: active
                                 ? "var(--text-main)"
@@ -5190,14 +6885,517 @@ export default function App() {
                           </button>
                         );
                       })}
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOrbitState((prev) => ({
+                            ...prev,
+                            creatorPortfolioMode: true,
+                          }))
+                        }
+                        className="px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer glass-panel whitespace-nowrap shrink-0 text-cyan-300"
+                      >
+                        🎨 Portfolio Pro
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleOpenQrForPage2}
+                        className="px-2 py-1 rounded-full text-[10px] font-bold cursor-pointer glass-panel whitespace-nowrap shrink-0 text-cyan-300 inline-flex items-center gap-1"
+                        title="Générer QR Code de cette sélection"
+                      >
+                        <QrCode className="w-3 h-3" />
+                        <span>QR</span>
+                      </button>
                     </div>
                   </div>
 
-                  {/* Profile Video Grid or Time-Capsule Vault */}
+                  {/* TOUT CE QUI EST AU-DESSUS DE LA 1RE VIDÉO SUR MA PAGE : MASQUÉ ET PAR DEUX */}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {/* Paire 1 : Défi de Curation & Mon Empreinte Culturelle */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveTopPanel((p) =>
+                          p === "challenges" ? null : "challenges"
+                        )
+                      }
+                      className="px-2.5 py-1.5 rounded-xl glass-panel flex items-center justify-between gap-1.5 text-left cursor-pointer transition-all hover:bg-white/5"
+                      style={{
+                        borderColor:
+                          activeTopPanel === "challenges"
+                            ? "rgba(251, 191, 36, 0.65)"
+                            : "var(--border)",
+                      }}
+                    >
+                      <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-extrabold truncate">
+                        <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="truncate">
+                          Défi de Curation ({orbitState.challenges.length})
+                        </span>
+                      </span>
+                      <span
+                        className="text-[10px] font-mono-num shrink-0 px-1.5 py-0.5 rounded bg-white/5"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {activeTopPanel === "challenges"
+                          ? "Masquer ▴"
+                          : "Masqué ▾"}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveTopPanel((p) => (p === "dna" ? null : "dna"))
+                      }
+                      className="px-2.5 py-1.5 rounded-xl glass-panel flex items-center justify-between gap-1.5 text-left cursor-pointer transition-all hover:bg-white/5"
+                      style={{
+                        borderColor:
+                          activeTopPanel === "dna"
+                            ? "rgba(0, 229, 255, 0.65)"
+                            : "var(--border)",
+                      }}
+                    >
+                      <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-extrabold truncate">
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span className="truncate">
+                          Mon Empreinte Culturelle (15)
+                        </span>
+                      </span>
+                      <span
+                        className="text-[10px] font-mono-num shrink-0 px-1.5 py-0.5 rounded bg-white/5"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {activeTopPanel === "dna" ? "Masquer ▴" : "Masqué ▾"}
+                      </span>
+                    </button>
+
+                    {/* Paire 2 : Partager / Télécharger Vidéo FB & .MP4 | Mon Profil & Coffre ORBIT */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveTopPanel((p) =>
+                          p === "downloader" ? null : "downloader"
+                        )
+                      }
+                      className="px-2.5 py-1.5 rounded-xl glass-panel flex items-center justify-between gap-1.5 text-left cursor-pointer transition-all hover:bg-white/5"
+                      style={{
+                        borderColor:
+                          activeTopPanel === "downloader"
+                            ? "rgba(56, 189, 248, 0.65)"
+                            : "var(--border)",
+                      }}
+                    >
+                      <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-extrabold text-cyan-300 truncate">
+                        <Download className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                        <span className="truncate">
+                          Partager / Télécharger FB & .MP4
+                        </span>
+                      </span>
+                      <span
+                        className="text-[10px] font-mono-num shrink-0 px-1.5 py-0.5 rounded bg-white/5"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {activeTopPanel === "downloader"
+                          ? "Masquer ▴"
+                          : "Masqué ▾"}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveTopPanel((p) =>
+                          p === "profile" ? null : "profile"
+                        )
+                      }
+                      className="px-2.5 py-1.5 rounded-xl glass-panel flex items-center justify-between gap-1.5 text-left cursor-pointer transition-all hover:bg-white/5"
+                      style={{
+                        borderColor:
+                          activeTopPanel === "profile"
+                            ? "rgba(16, 185, 129, 0.65)"
+                            : "var(--border)",
+                      }}
+                    >
+                      <span className="inline-flex items-center gap-1.5 min-w-0 text-[11px] font-extrabold truncate">
+                        <User className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="truncate">
+                          Profil, Coffre & Partage Ami
+                        </span>
+                      </span>
+                      <span
+                        className="text-[10px] font-mono-num shrink-0 px-1.5 py-0.5 rounded bg-white/5"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {activeTopPanel === "profile"
+                          ? "Masquer ▴"
+                          : "Masqué ▾"}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* PANNEAUX DÉPLIABLES SUR LA PAGE 2 */}
+                  {activeTopPanel === "challenges" && (
+                    <div className="p-3 rounded-2xl glass-panel space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-extrabold flex items-center gap-1.5">
+                          <Flame className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Défis de Curation Hebdomadaires</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTopPanel(null)}
+                          className="text-[11px] font-bold opacity-75 hover:opacity-100 cursor-pointer"
+                        >
+                          Fermer ✕
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                        {orbitState.challenges.map((ch) => {
+                          const pct = Math.round(
+                            (ch.userProgress / ch.targetCount) * 100
+                          );
+                          return (
+                            <div
+                              key={ch.id}
+                              className="p-3 rounded-xl space-y-1.5"
+                              style={{
+                                background: "rgba(255,255,255,0.03)",
+                                border: "1px solid var(--border)",
+                              }}
+                            >
+                              <div className="flex items-center justify-between text-[11px] font-bold">
+                                <span style={{ color: "var(--accent-2)" }}>
+                                  {ch.weekLabel} · {ch.targetDomain}
+                                </span>
+                                <span className="font-mono-num">
+                                  {ch.userProgress}/{ch.targetCount}
+                                </span>
+                              </div>
+                              <div className="text-xs font-extrabold">
+                                {ch.title}
+                              </div>
+                              <div
+                                className="text-[11px]"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                {ch.description}
+                              </div>
+                              <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${pct}%`,
+                                    background:
+                                      "linear-gradient(90deg, var(--accent), var(--accent-2))",
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeTopPanel === "dna" && (
+                    <div className="p-3 rounded-2xl glass-panel space-y-2.5">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-xs font-extrabold flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Mon Empreinte Culturelle (15 Domaines)</span>
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handleGenerateCustomAiDna}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-black text-black cursor-pointer inline-flex items-center gap-1"
+                            style={{
+                              background:
+                                "linear-gradient(135deg, #00e676, #00e5ff)",
+                            }}
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>Générer mon ADN sur-mesure</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTopPanel(null)}
+                            className="text-[11px] font-bold opacity-75 hover:opacity-100 cursor-pointer ml-1"
+                          >
+                            Fermer ✕
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                        {orbitState.domains.map((d) => (
+                          <div
+                            key={d.id}
+                            className={`p-2 rounded-xl flex flex-col gap-1 ${
+                              d.secret ? "opacity-55 border-dashed" : ""
+                            }`}
+                            style={{
+                              background: "rgba(255,255,255,0.03)",
+                              border: `1px ${
+                                d.secret ? "dashed" : "solid"
+                              } var(--border)`,
+                            }}
+                          >
+                            <div className="flex items-center justify-between text-[10px] font-bold gap-1">
+                              <span className="truncate">
+                                {d.icon} {d.name}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleDomainPrivacy(d.id)}
+                                className="font-mono-num shrink-0 cursor-pointer"
+                                style={{ color: "var(--accent-2)" }}
+                              >
+                                {d.affinity}% {d.secret ? "🔒" : ""}
+                              </button>
+                            </div>
+                            <div className="h-1 rounded-full overflow-hidden bg-white/10">
+                              <div
+                                className="h-full rounded-full"
+                                style={{
+                                  width: `${d.affinity}%`,
+                                  background:
+                                    "linear-gradient(90deg, var(--accent), var(--accent-2))",
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeTopPanel === "downloader" && (
+                    <div
+                      className="p-3 rounded-2xl glass-panel space-y-2.5"
+                      style={{
+                        borderColor: "rgba(24, 119, 242, 0.45)",
+                        background:
+                          "linear-gradient(135deg, rgba(24, 119, 242, 0.12), rgba(124, 92, 255, 0.08))",
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-xs font-extrabold text-cyan-300">
+                          📤 Partager ou Télécharger une vidéo Facebook / Reel / .MP4 sur Ma Page
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setComposerOpen(true);
+                              setTimeout(
+                                () => composerMp4FileRef.current?.click(),
+                                120
+                              );
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-black text-white bg-purple-600 hover:bg-purple-500 cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <Upload className="w-3 h-3" />
+                            <span>📂 Importer .MP4</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTopPanel(null)}
+                            className="text-[11px] font-bold opacity-75 hover:opacity-100 cursor-pointer"
+                          >
+                            Fermer ✕
+                          </button>
+                        </div>
+                      </div>
+                      <form
+                        onSubmit={handlePublishVideo}
+                        className="space-y-2"
+                      >
+                        <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_auto_auto] gap-2">
+                          <input
+                            type="text"
+                            value={inpUrl}
+                            onChange={(e) => {
+                              setInpUrl(e.target.value);
+                              handleLocalClassify(e.target.value, inpTitle);
+                            }}
+                            placeholder="Collez votre lien vidéo Facebook (Watch / Reel / Share), YouTube, TikTok..."
+                            className="px-3 py-1.5 rounded-xl text-xs outline-none"
+                            style={{
+                              background: "var(--bg-input)",
+                              border: "1px solid var(--border)",
+                              color: "var(--text-main)",
+                            }}
+                          />
+                          <input
+                            type="text"
+                            value={inpTitle}
+                            onChange={(e) => {
+                              setInpTitle(e.target.value);
+                              handleLocalClassify(inpUrl, e.target.value);
+                            }}
+                            placeholder="Titre ou note personnelle (optionnel)"
+                            className="px-3 py-1.5 rounded-xl text-xs outline-none"
+                            style={{
+                              background: "var(--bg-input)",
+                              border: "1px solid var(--border)",
+                              color: "var(--text-main)",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleCopyComposerSiteLink}
+                            className="px-3 py-1.5 rounded-xl text-xs font-extrabold text-black bg-cyan-300 hover:bg-cyan-200 cursor-pointer inline-flex items-center justify-center gap-1 whitespace-nowrap"
+                            title="Créer et copier un lien vers le site qui génère la publication directement sur le site"
+                          >
+                            <Link2 className="w-3.5 h-3.5" />
+                            <span>
+                              {composerSiteLinkCopied
+                                ? "✓ Lien vers le site copié"
+                                : "Créer lien vers le site"}
+                            </span>
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-4 py-1.5 rounded-xl text-xs font-extrabold text-white cursor-pointer inline-flex items-center justify-center gap-1.5 btn-couture whitespace-nowrap"
+                            style={{
+                              background:
+                                "linear-gradient(135deg, #1877F2, var(--accent))",
+                            }}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Publier sur le site</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
+
+                  {activeTopPanel === "profile" && (
+                    <div className="p-3 rounded-2xl glass-panel space-y-2.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black font-display">
+                            {orbitState.profile.name}
+                          </span>
+                          <span
+                            className="text-[11px] font-bold"
+                            style={{ color: "var(--accent-2)" }}
+                          >
+                            · Éclaireur Rang {orbitState.profile.scoutBadges || 4} (
+                            {orbitState.profile.scoutPoints || 145} pts)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTopPanel(null)}
+                          className="text-[11px] font-bold opacity-75 hover:opacity-100 cursor-pointer"
+                        >
+                          Fermer ✕
+                        </button>
+                      </div>
+                      <p
+                        className="text-[11px]"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {orbitState.profile.bio}
+                      </p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditName(orbitState.profile.name);
+                            setEditBio(orbitState.profile.bio);
+                            setEditingProfile(!editingProfile);
+                          }}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer glass-panel"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>Modifier profil</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOpenModal("vault")}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-black text-white cursor-pointer btn-couture inline-flex items-center gap-1"
+                          style={{
+                            background:
+                              "linear-gradient(135deg, #059669, #0284c7)",
+                          }}
+                        >
+                          <ShieldCheck className="w-3 h-3" />
+                          <span>🛡️ Mon coffre ORBIT</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOpenModal("capsule")}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-white inline-flex items-center gap-1 cursor-pointer btn-couture"
+                          style={{
+                            background:
+                              "linear-gradient(135deg, #00c853, #009624)",
+                          }}
+                        >
+                          <Gift className="w-3 h-3" />
+                          <span>Partager ma Page à un ami</span>
+                        </button>
+                      </div>
+                      {editingProfile && (
+                        <form
+                          onSubmit={handleSaveProfile}
+                          className="pt-2 space-y-2"
+                        >
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              placeholder="Nom ou pseudo"
+                              className="px-3 py-1.5 rounded-lg text-xs outline-none"
+                              style={{
+                                background: "var(--bg-input)",
+                                border: "1px solid var(--border)",
+                                color: "var(--text-main)",
+                              }}
+                            />
+                            <input
+                              type="text"
+                              value={editBio}
+                              onChange={(e) => setEditBio(e.target.value)}
+                              placeholder="Votre bio"
+                              className="px-3 py-1.5 rounded-lg text-xs outline-none"
+                              style={{
+                                background: "var(--bg-input)",
+                                border: "1px solid var(--border)",
+                                color: "var(--text-main)",
+                              }}
+                            />
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingProfile(false)}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer glass-panel"
+                            >
+                              Annuler
+                            </button>
+                            <button
+                              type="submit"
+                              className="px-3 py-1 rounded-lg text-[11px] font-bold text-white cursor-pointer btn-couture"
+                              style={{ background: "var(--accent)" }}
+                            >
+                              Enregistrer
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Profile Video Grid or Time-Capsule Vault — Visible dès le haut de la page */}
                   {profileTab === "capsules" ? (
                     lockedTimeCapsules.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {lockedTimeCapsules.map((cap) => {
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-0.5">
+                        {lockedTimeCapsules.map((cap, idx) => {
                           const remainingSec = Math.max(
                             0,
                             Math.ceil(
@@ -5206,8 +7404,8 @@ export default function App() {
                           );
                           return (
                             <div
-                              key={cap.id}
-                              className="p-5 rounded-3xl glass-panel flex flex-col justify-between gap-4"
+                              key={`capsule-${cap.id}-${idx}`}
+                              className="p-4 rounded-2xl glass-panel flex flex-col justify-between gap-3"
                             >
                               <div className="flex items-center justify-between text-xs font-bold text-amber-300">
                                 <span className="inline-flex items-center gap-1.5">
@@ -5244,7 +7442,7 @@ export default function App() {
                       </div>
                     ) : (
                       <div
-                        className="p-8 rounded-2xl glass-panel text-center text-sm space-y-3"
+                        className="p-6 rounded-2xl glass-panel text-center text-xs space-y-2"
                         style={{ color: "var(--text-muted)" }}
                       >
                         <div>Aucune Time-Capsule programmée en attente.</div>
@@ -5254,7 +7452,7 @@ export default function App() {
                             setIsTimeCapsule(true);
                             setComposerOpen(true);
                           }}
-                          className="px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer btn-couture"
+                          className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer btn-couture"
                           style={{ background: "var(--accent)" }}
                         >
                           Programmer une Time-Capsule ⏳
@@ -5262,10 +7460,10 @@ export default function App() {
                       </div>
                     )
                   ) : filteredProfileVideos.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                      {filteredProfileVideos.map((v) => (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-0.5">
+                      {filteredProfileVideos.map((v, idx) => (
                         <VideoCard
-                          key={v.id}
+                          key={`profile-${v.id}-${idx}`}
                           video={v}
                           isInWatchLater={watchLaterIds.includes(v.id)}
                           isWatched={watchedIds.includes(v.id)}
@@ -5291,7 +7489,7 @@ export default function App() {
                     </div>
                   ) : (
                     <div
-                      className="p-8 rounded-2xl glass-panel text-center text-sm"
+                      className="p-6 rounded-2xl glass-panel text-center text-xs"
                       style={{ color: "var(--text-muted)" }}
                     >
                       Aucune vidéo dans cet onglet pour le moment.
@@ -6075,9 +8273,9 @@ export default function App() {
               {/* Radar Video Grid */}
               {radarVideos.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {radarVideos.map((v) => (
+                  {radarVideos.map((v, idx) => (
                     <VideoCard
-                      key={v.id}
+                      key={`radar-${v.id}-${idx}`}
                       video={v}
                       isInWatchLater={watchLaterIds.includes(v.id)}
                       isWatched={watchedIds.includes(v.id)}
@@ -6132,9 +8330,8 @@ export default function App() {
               onApplyRealImport={handleApplyNetworkImport}
               onRepairCatalog={handleRepairCatalog51}
               onNavigateToPage={(pageId) => {
-                setActivePage(pageId);
+                navigateToOrbitPage(pageId);
                 setFeedViewMode("grid");
-                window.scrollTo({ top: 0, behavior: "smooth" });
               }}
               onShowToast={showToast}
             />
@@ -6206,14 +8403,13 @@ export default function App() {
                 border: "1px solid rgba(255,255,255,0.16)",
               }}
             >
-              <iframe
-                width="100%"
-                height="100%"
-                src={getVideoEmbedConfig(cinemaModalVideo).embedUrl}
-                title={cinemaModalVideo.title}
-                frameBorder="0"
-                allow="autoplay; encrypted-media; picture-in-picture; web-share"
-                allowFullScreen
+              <UniversalVideoPlayer
+                video={cinemaModalVideo}
+                playing={true}
+                controls={true}
+                showTopBar={true}
+                onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
+                className="w-full h-full"
               />
             </div>
           </div>
@@ -6377,21 +8573,166 @@ export default function App() {
             )}
 
             <div className="space-y-3">
-              <input
-                type="text"
-                value={inpUrl}
-                onChange={(e) => {
-                  setInpUrl(e.target.value);
-                  handleLocalClassify(e.target.value, inpTitle);
-                }}
-                placeholder="Lien YouTube, Shorts, TikTok, Instagram Reel, Twitch..."
-                className="w-full px-3.5 py-2.5 rounded-xl text-xs outline-none"
+              {/* Barre de saisie URL + Bouton Extraire & Télécharger MP4 */}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={inpUrl}
+                  onChange={(e) => {
+                    setInpUrl(e.target.value);
+                    handleLocalClassify(e.target.value, inpTitle);
+                  }}
+                  placeholder="Collez un lien Facebook Reel (ex: https://www.facebook.com/share/r/1dNEyMHG3u/), TikTok, YouTube..."
+                  className="flex-1 px-3.5 py-2.5 rounded-xl text-xs outline-none"
+                  style={{
+                    background: "var(--bg-input)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text-main)",
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={isExtractingVideo}
+                  onClick={() => handleExtractMp4FromUrl()}
+                  className="px-4 py-2.5 rounded-xl text-xs font-black text-black bg-cyan-300 hover:bg-cyan-200 cursor-pointer inline-flex items-center justify-center gap-1.5 shrink-0 shadow-md"
+                  title="Extraire et télécharger la vidéo en .MP4 pour contourner les restrictions Facebook"
+                >
+                  {isExtractingVideo ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>Extraire & Télécharger MP4</span>
+                </button>
+              </div>
+
+              {/* Module intégré : Téléchargeur Vidéo Facebook en ligne & Importateur de fichier .MP4 */}
+              <div
+                className="p-3.5 rounded-2xl space-y-3 text-xs"
                 style={{
-                  background: "var(--bg-input)",
-                  border: "1px solid var(--border)",
-                  color: "var(--text-main)",
+                  background: "rgba(24, 119, 242, 0.09)",
+                  border: "1px solid rgba(56, 189, 248, 0.35)",
                 }}
-              />
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="font-extrabold text-cyan-300 flex items-center gap-1.5">
+                    <Download className="w-4 h-4" />
+                    <span>
+                      Solution Anti-Blocage Facebook / Reels : Télécharger & Importer en .MP4
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const demoUrl =
+                        "https://www.facebook.com/share/r/1dNEyMHG3u/";
+                      setInpUrl(demoUrl);
+                      handleExtractMp4FromUrl(demoUrl);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600/40 hover:bg-blue-600/60 text-white border border-blue-400/40 cursor-pointer"
+                  >
+                    Tester avec facebook.com/share/r/1dNEyMHG3u/
+                  </button>
+                </div>
+
+                <p
+                  className="text-[11px] leading-relaxed"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Lorsqu&apos;un Reel Facebook affiche{" "}
+                  <em>« Vous n&apos;avez pas l&apos;autorisation de la lire »</em>{" "}
+                  en iframe, utilisez notre extracteur MP4 ci-dessus ou téléchargez le fichier{" "}
+                  <strong>.MP4</strong> via votre téléchargeur Facebook en ligne puis importez-le ci-dessous :
+                </p>
+
+                {/* Boutons d'import de fichier .MP4 local + Passerelles de téléchargement Facebook */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    ref={composerMp4FileRef}
+                    type="file"
+                    accept="video/mp4,video/webm,video/quicktime,video/*"
+                    onChange={handleLocalMp4FileSelect}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => composerMp4FileRef.current?.click()}
+                    className="px-3.5 py-2 rounded-xl text-xs font-black text-white bg-purple-600 hover:bg-purple-500 cursor-pointer inline-flex items-center gap-1.5 shadow-md"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>
+                      {uploadedMp4FileName
+                        ? `✓ Fichier chargé : ${uploadedMp4FileName}`
+                        : "📂 Choisir un fichier vidéo .MP4 téléchargé"}
+                    </span>
+                  </button>
+
+                  <a
+                    href="https://fdown.net/fr/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      if (inpUrl) {
+                        navigator.clipboard?.writeText(inpUrl).catch(() => {});
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl text-[11px] font-bold bg-white/10 hover:bg-white/20 text-white border border-white/15 inline-flex items-center gap-1"
+                    title="Copie votre lien et ouvre FDown (Téléchargeur Vidéo Facebook gratuit)"
+                  >
+                    <ExternalLink className="w-3 h-3 text-cyan-300" />
+                    <span>Ouvrir Téléchargeur FB #1 (FDown)</span>
+                  </a>
+
+                  <a
+                    href="https://snapsave.app/fr"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      if (inpUrl) {
+                        navigator.clipboard?.writeText(inpUrl).catch(() => {});
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl text-[11px] font-bold bg-white/10 hover:bg-white/20 text-white border border-white/15 inline-flex items-center gap-1"
+                    title="Copie votre lien et ouvre SnapSave (Téléchargeur Reel Facebook HD)"
+                  >
+                    <ExternalLink className="w-3 h-3 text-emerald-300" />
+                    <span>Ouvrir Téléchargeur FB #2 (SnapSave HD)</span>
+                  </a>
+                </div>
+
+                {/* Aperçu vidéo HTML5 immédiat si un flux MP4 est extrait ou qu'un fichier .MP4 est importé */}
+                {(uploadedMp4PreviewUrl || extractedMp4Info) && (
+                  <div className="p-3 rounded-2xl bg-black/60 border border-emerald-400/40 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-[11px] font-extrabold text-emerald-300">
+                        {uploadedMp4PreviewUrl
+                          ? `✓ Aperçu de votre fichier .MP4 (${uploadedMp4FileName})`
+                          : `✓ Flux MP4 prêt (${extractedMp4Info?.title})`}
+                      </span>
+                      {extractedMp4Info && !uploadedMp4PreviewUrl && (
+                        <a
+                          href={extractedMp4Info.downloadMp4Url}
+                          download="orbit-facebook-reel.mp4"
+                          className="px-3 py-1 rounded-lg text-[11px] font-black text-black bg-emerald-400 hover:bg-emerald-300 inline-flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>Télécharger le fichier .MP4</span>
+                        </a>
+                      )}
+                    </div>
+                    <video
+                      src={
+                        uploadedMp4PreviewUrl ||
+                        extractedMp4Info?.streamMp4Url ||
+                        ""
+                      }
+                      controls
+                      playsInline
+                      className="w-full max-h-56 rounded-xl bg-black object-contain"
+                    />
+                  </div>
+                )}
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <select
@@ -6443,7 +8784,7 @@ export default function App() {
                   setInpTitle(e.target.value);
                   handleLocalClassify(inpUrl, e.target.value);
                 }}
-                placeholder="Titre de la vidéo (récupéré automatiquement via oEmbed ou personnalisé)"
+                placeholder="Titre de la vidéo (récupéré automatiquement ou personnalisé)"
                 className="w-full px-3.5 py-2.5 rounded-xl text-xs outline-none"
                 style={{
                   background: "var(--bg-input)",
@@ -6519,9 +8860,87 @@ export default function App() {
                   </div>
                 )}
               </div>
+              {/* Passerelle : Créer un lien vers le site (en attendant que l'application mobile soit en ligne) */}
+              <div
+                className="p-3.5 rounded-2xl space-y-2.5 text-xs"
+                style={{
+                  background: "rgba(0, 229, 255, 0.06)",
+                  border: "1px solid rgba(0, 229, 255, 0.3)",
+                }}
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="font-extrabold text-cyan-300 flex items-center gap-1.5">
+                    <Link2 className="w-4 h-4 shrink-0" />
+                    <span>
+                      Créer un lien vers le site (Passerelle Web de publication directe)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {(
+                      [
+                        { id: "current", label: "Site actuel (En direct)" },
+                        { id: "infoperso", label: "infoperso.fr" },
+                        { id: "alphabette", label: "alphabette.fr" },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setComposerSiteTarget(opt.id)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition-colors ${
+                          composerSiteTarget === opt.id
+                            ? "bg-cyan-400 text-black"
+                            : "bg-white/10 text-white/75 hover:bg-white/20"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <p
+                  className="text-[11px] leading-relaxed"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Comme l&apos;application n&apos;est pas encore en ligne sur le store, ce lien redirige vers le site et crée directement la publication sur le site dès son ouverture :
+                </p>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={generatedComposerSiteLink}
+                    onClick={(e) => e.currentTarget.select()}
+                    className="flex-1 px-3 py-2 rounded-xl text-[11px] font-mono outline-none select-all"
+                    style={{
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border)",
+                      color: "var(--accent-2)",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopyComposerSiteLink}
+                    className="px-3.5 py-2 rounded-xl text-xs font-extrabold text-black bg-cyan-300 hover:bg-cyan-200 inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    {composerSiteLinkCopied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Lien copié !</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copier le lien vers le site</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-2">
+            <div className="flex items-center justify-end gap-2.5 pt-2 flex-wrap">
               <button
                 type="button"
                 disabled={isClassifying}
@@ -6544,7 +8963,7 @@ export default function App() {
               >
                 {isTimeCapsule
                   ? "Sceller la Time-Capsule ⏳"
-                  : "Publier dans le Flux"}
+                  : "Créer la publication sur le site"}
               </button>
             </div>
           </form>
@@ -6587,14 +9006,20 @@ export default function App() {
 
             {jukeboxPlayingTrack && (
               <div className="rounded-2xl overflow-hidden bg-black aspect-video border border-white/15">
-                <iframe
-                  width="100%"
-                  height="100%"
-                  src={`https://www.youtube-nocookie.com/embed/${jukeboxPlayingTrack.youtubeId}?autoplay=1`}
-                  title={jukeboxPlayingTrack.title}
-                  frameBorder="0"
-                  allow="autoplay; encrypted-media"
-                  allowFullScreen
+                <UniversalVideoPlayer
+                  video={{
+                    id: jukeboxPlayingTrack.videoId,
+                    title: jukeboxPlayingTrack.title,
+                    platform: "youtube",
+                    youtubeId: jukeboxPlayingTrack.youtubeId,
+                    rawUrl: `https://www.youtube.com/watch?v=${jukeboxPlayingTrack.youtubeId}`,
+                    thumb: jukeboxPlayingTrack.thumb,
+                    domain: jukeboxPlayingTrack.domain,
+                  }}
+                  playing={true}
+                  controls={true}
+                  showTopBar={true}
+                  className="w-full h-full"
                 />
               </div>
             )}
@@ -6935,14 +9360,13 @@ export default function App() {
             </button>
           </div>
           <div className="w-full aspect-video bg-black">
-            <iframe
-              width="100%"
-              height="100%"
-              src={getVideoEmbedConfig(pipVideo).embedUrl}
-              title={pipVideo.title}
-              frameBorder="0"
-              allow="autoplay; encrypted-media; picture-in-picture; web-share"
-              allowFullScreen
+            <UniversalVideoPlayer
+              video={pipVideo}
+              playing={true}
+              controls={true}
+              showTopBar={false}
+              onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
+              className="w-full h-full"
             />
           </div>
           <div className="px-3.5 py-2.5 flex items-center justify-between text-[11px] text-white">
@@ -7643,15 +10067,14 @@ export default function App() {
                     boxShadow: "0 25px 90px rgba(255, 171, 0, 0.18)",
                   }}
                 >
-                  <iframe
+                  <UniversalVideoPlayer
                     key={currentSessionVideo.id}
-                    width="100%"
-                    height="100%"
-                    src={`https://www.youtube-nocookie.com/embed/${currentSessionVideo.youtubeId}?autoplay=1&rel=0`}
-                    title={currentSessionVideo.title}
-                    frameBorder="0"
-                    allow="autoplay; encrypted-media; picture-in-picture"
-                    allowFullScreen
+                    video={currentSessionVideo}
+                    playing={true}
+                    controls={true}
+                    showTopBar={true}
+                    onRemoveUnavailableVideo={handleRemoveUnavailableVideo}
+                    className="w-full h-full"
                   />
                 </div>
 

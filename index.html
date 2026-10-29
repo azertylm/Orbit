@@ -43,13 +43,25 @@
             });
           }
           if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function (regs) {
-              regs.forEach(function (reg) {
-                reg.update();
-              });
-            });
+            navigator.serviceWorker
+              .getRegistrations()
+              .then(function (regs) {
+                regs.forEach(function (reg) {
+                  try {
+                    var p = reg.update();
+                    if (p && typeof p.catch === 'function') {
+                      p.catch(function () {});
+                    }
+                  } catch (err) {}
+                });
+              })
+              .catch(function () {});
             window.addEventListener('load', function () {
-              navigator.serviceWorker.register('/sw.js').catch(function () {});
+              try {
+                navigator.serviceWorker
+                  .register('/sw.js', { updateViaCache: 'none' })
+                  .catch(function () {});
+              } catch (err) {}
             });
           }
         } catch (e) {}

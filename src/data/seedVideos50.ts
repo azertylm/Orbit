@@ -643,7 +643,7 @@ export const SEED_50_VIDEOS: OrbitVideo[] = [
   {
     id: 1602,
     title: "Assemblages Japonais Sans Clou ni Vis : La Géométrie du Bois (Kigumi)",
-    platform: "youtube",
+    platform: "facebook",
     ratio: "16-9",
     domain: "Artisanat & Cuisine",
     subdomain: "Travail du Bois",
@@ -741,7 +741,7 @@ export const SEED_50_VIDEOS: OrbitVideo[] = [
   {
     id: 1703,
     title: "Régénération des Sols Vivants, Agroforesterie & Cycle de l'Eau",
-    platform: "youtube",
+    platform: "facebook",
     ratio: "16-9",
     domain: "Nature & Écologie",
     subdomain: "Permaculture & Jardin",
@@ -1374,7 +1374,7 @@ export const SEED_50_VIDEOS: OrbitVideo[] = [
   {
     id: 2502,
     title: "Le Pouvoir des Liens Sociaux Réels & de l'Entraide Locale (Étude de Harvard sur 80 Ans)",
-    platform: "youtube",
+    platform: "facebook",
     ratio: "16-9",
     domain: "Bien-être & Quotidien",
     subdomain: "Entraide & Lien Local",

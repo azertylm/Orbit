@@ -8,6 +8,7 @@ import {
   getVideoEmbedConfig,
   createPlatformCoverSvg,
 } from "../data/orbitData";
+import { UniversalVideoPlayer } from "./UniversalVideoPlayer";
 import {
   Play,
   Pause,
@@ -101,6 +102,7 @@ interface VerticalFeedProps {
   navOverlayOpen?: boolean;
   onToggleNavOverlay?: () => void;
   onRemoveUnavailableVideo?: (videoId: number, reason?: string) => void;
+  onSwipePage?: (offset: -1 | 1) => void;
 }
 
 function formatSecondsToMmSs(totalSec: number): string {
@@ -137,6 +139,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
   navOverlayOpen = false,
   onToggleNavOverlay,
   onRemoveUnavailableVideo,
+  onSwipePage,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const iframeRefs = useRef<Record<number, HTMLIFrameElement | null>>({});
@@ -148,7 +151,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [infiniteCycles, setInfiniteCycles] = useState(1);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
   // Mode Immersion (false = 100% clean video) vs Mode Interaction (true = discreet UI visible)
@@ -548,10 +551,17 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
       longPressTimerRef.current = null;
     }
     if (!pointerStartRef.current) return;
-    const dx = Math.abs(e.clientX - pointerStartRef.current.x);
+    const signedDx = e.clientX - pointerStartRef.current.x;
+    const dx = Math.abs(signedDx);
     const dy = Math.abs(e.clientY - pointerStartRef.current.y);
     const dt = Date.now() - pointerStartRef.current.time;
     pointerStartRef.current = null;
+
+    // Horizontal swipe left/right -> invisible page navigation (p1 <-> p2 <-> p3 <-> p4 <-> p5)
+    if (onSwipePage && dx >= 56 && dx > dy * 1.3 && dt < 900) {
+      onSwipePage(signedDx < 0 ? 1 : -1);
+      return;
+    }
 
     // Clean single tap (not a scroll/swipe drag and not a long press)
     if (dx < 14 && dy < 14 && dt < 480) {
@@ -759,32 +769,26 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({
                 }`}
               >
                 {isActive ? (
-                  <iframe
-                    ref={(el) => {
-                      iframeRefs.current[idx] = el;
-                    }}
-                    key={`${slideKey}-${seekStartSec}-${embedConfig.detectedPlatform}`}
-                    src={verticalIframeSrc}
-                    title={video.title}
+                  <div
                     className={`w-full h-full ${
-                      embedConfig.isFacebook ? "" : "pointer-events-none"
-                    } ${
                       useSmartCrop && !embedConfig.isFacebook
                         ? "orbit-video-smart-crop-16-9"
                         : "object-cover"
                     }`}
-                    frameBorder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    onError={() => {
-                      if (onRemoveUnavailableVideo) {
-                        onRemoveUnavailableVideo(
-                          video.id,
-                          "Lecteur vidéo impossible à charger"
-                        );
-                      }
-                    }}
-                  />
+                  >
+                    <UniversalVideoPlayer
+                      video={video}
+                      playing={!isPaused}
+                      muted={isMuted}
+                      controls={embedConfig.isFacebook}
+                      loop={true}
+                      startAtSeconds={seekStartSec}
+                      showTopBar={isUiVisible}
+                      autoRemoveOnFatalError={true}
+                      onRemoveUnavailableVideo={onRemoveUnavailableVideo}
+                      className="w-full h-full"
+                    />
+                  </div>
                 ) : (
                   <div className="w-full h-full relative flex items-center justify-center bg-black">
                     {!hasImgError ? (
